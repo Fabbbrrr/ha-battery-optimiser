@@ -1,0 +1,10 @@
+{
+  "name": "Battery Optimizer",
+  "description": "LP-optimized battery charge/discharge/export scheduling for Home Assistant. Maximizes export revenue while guaranteeing energy security across any inverter.",
+  "content_in_root": false,
+  "iot_class": "local_polling",
+  "homeassistant": "2024.1.0",
+  "documentation": "https://github.com/Fabbbrrr/ha-battery-optimiser/blob/main/README.md",
+  "issue_tracker": "https://github.com/Fabbbrrr/ha-battery-optimiser/issues",
+  "requirements": ["scipy>=1.11.0"]
+}

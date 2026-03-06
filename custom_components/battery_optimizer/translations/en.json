@@ -1,0 +1,107 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Battery System — Required",
+        "description": "Select your battery state-of-charge sensor and enter battery details.",
+        "data": {
+          "battery_soc_entity": "Battery SOC sensor",
+          "battery_capacity_kwh": "Battery capacity (kWh)",
+          "min_soc_floor_percent": "Minimum SOC floor (%)"
+        }
+      },
+      "export_window": {
+        "title": "Export Bonus Window — Required",
+        "description": "Configure your energy retailer's export bonus window and rates.",
+        "data": {
+          "export_bonus_start": "Export bonus start time",
+          "export_bonus_end": "Export bonus end time",
+          "export_bonus_rate": "Export bonus rate ($/kWh)",
+          "standard_export_rate": "Standard export rate ($/kWh)",
+          "standard_import_rate": "Standard import rate ($/kWh)"
+        }
+      },
+      "solar_forecast": {
+        "title": "Solar Forecast — Required",
+        "description": "Select your solar forecast sensor. Forecast.Solar and Solcast formats are auto-detected.",
+        "data": {
+          "solar_forecast_entity": "Solar forecast sensor"
+        }
+      },
+      "optional_tariffs": {
+        "title": "Additional Tariff Periods — Optional",
+        "description": "Add free import windows, peak rates, or grid-charging windows. Leave blank to skip.",
+        "data": {
+          "free_import_start": "Free import start (e.g. 11:00)",
+          "free_import_end": "Free import end (e.g. 14:00)",
+          "peak_import_start": "Peak import start",
+          "peak_import_end": "Peak import end",
+          "peak_import_rate": "Peak import rate ($/kWh)",
+          "grid_charging_enabled": "Enable grid charging during cheap windows"
+        }
+      },
+      "optional_consumption": {
+        "title": "Home Consumption — Optional",
+        "description": "Select a consumption sensor to learn your load patterns from history.",
+        "data": {
+          "consumption_entity": "Home consumption sensor",
+          "consumption_baseline_kw": "Baseline consumption (kW)",
+          "consumption_profile_granularity": "Profile granularity",
+          "consumption_lookback_days": "History lookback (days)"
+        }
+      },
+      "optional_weather": {
+        "title": "Weather Integration — Optional",
+        "description": "Improves forecast accuracy by adjusting solar confidence based on weather conditions.",
+        "data": {
+          "weather_entity": "Weather entity"
+        }
+      },
+      "optional_battery_rates": {
+        "title": "Inverter Rate Limits — Optional",
+        "description": "Configure max charge, discharge, and export power limits for your inverter.",
+        "data": {
+          "max_charge_rate_kw": "Max charge rate (kW)",
+          "max_discharge_rate_kw": "Max discharge rate (kW)",
+          "max_export_limit_kw": "Max export limit (kW)",
+          "max_export_limit_entity": "Max export limit sensor (optional override)"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "The selected entity was not found. Make sure it exists and is available."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Battery Optimizer Options"
+      },
+      "optimizer_settings": {
+        "title": "Optimizer Settings",
+        "data": {
+          "aggressiveness": "Aggressiveness (0 = conservative, 1 = maximize revenue)",
+          "slot_granularity_minutes": "Schedule slot size",
+          "lookahead_hours": "Optimization lookahead (hours)",
+          "recalculation_interval_minutes": "Recalculation interval (minutes)",
+          "bridge_to_fallback_time": "Fallback bridge-to time (if no forecast data)"
+        }
+      },
+      "tariff_settings": {
+        "title": "Tariff & Rates"
+      },
+      "entity_settings": {
+        "title": "Entity Mappings"
+      },
+      "advanced_settings": {
+        "title": "Advanced Settings",
+        "data": {
+          "fallback_mode": "Fallback mode when data unavailable",
+          "solver_timeout_seconds": "Solver timeout (seconds)",
+          "data_retention_days": "Historical data retention (days)",
+          "min_soc_floor_percent": "Minimum SOC floor (%)"
+        }
+      }
+    }
+  }
+}

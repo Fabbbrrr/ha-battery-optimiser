@@ -1,0 +1,73 @@
+recalculate_now:
+  name: Recalculate Now
+  description: Force an immediate schedule recalculation regardless of the configured interval. Useful after significant events (EV plugged in, unexpected load change).
+  fields: {}
+
+set_aggressiveness:
+  name: Set Aggressiveness
+  description: Adjust the optimizer's revenue-vs-security trade-off at runtime without going through the config flow.
+  fields:
+    aggressiveness:
+      name: Aggressiveness
+      description: "0.0 = maximally conservative (hold charge), 1.0 = maximally aggressive (maximize export revenue). Default: 0.7"
+      required: true
+      selector:
+        number:
+          min: 0.0
+          max: 1.0
+          step: 0.05
+          mode: slider
+
+override_slot:
+  name: Override Slot
+  description: Force a specific action for the current (or a named) slot for a given duration. The optimizer automatically recalculates when the override expires.
+  fields:
+    action:
+      name: Action
+      description: The action to force during the override period.
+      required: true
+      selector:
+        select:
+          options:
+            - charge
+            - discharge
+            - hold
+            - export
+    duration_minutes:
+      name: Duration (minutes)
+      description: How long the override should remain active before the optimizer resumes normal scheduling.
+      required: true
+      selector:
+        number:
+          min: 5
+          max: 480
+          step: 5
+          unit_of_measurement: min
+          mode: box
+    power_kw:
+      name: Power (kW)
+      description: Optional — override the recommended power level. Leave blank to use the optimizer's calculated value for this action.
+      required: false
+      selector:
+        number:
+          min: 0.0
+          max: 100.0
+          step: 0.1
+          unit_of_measurement: kW
+          mode: box
+    start:
+      name: Slot start time
+      description: Optional — ISO datetime of the slot to override. Defaults to the current slot if omitted.
+      required: false
+      selector:
+        text:
+
+pause:
+  name: Pause Optimizer
+  description: Pause the optimizer — stops all recalculations and sets all schedule slots to 'hold'. Paused state persists across Home Assistant restarts.
+  fields: {}
+
+resume:
+  name: Resume Optimizer
+  description: Resume the optimizer from a paused state and trigger an immediate recalculation.
+  fields: {}
