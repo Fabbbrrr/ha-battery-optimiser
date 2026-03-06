@@ -9,7 +9,10 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.data_entry_flow import FlowResult
+try:
+    from homeassistant.config_entries import ConfigFlowResult as FlowResult
+except ImportError:
+    from homeassistant.data_entry_flow import FlowResult  # type: ignore[assignment]
 from homeassistant.helpers import entity_registry as er, selector
 
 from .const import (
