@@ -369,7 +369,7 @@ class BatteryOptimizerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _create_entry(self) -> FlowResult:
         """Create the config entry with all collected data."""
-        title = f"Battery Optimizer ({self._data.get(CONF_BATTERY_CAPACITY_KWH, '?')}kWh)"
+        title = f"Battery Optimiser ({self._data.get(CONF_BATTERY_CAPACITY_KWH, '?')}kWh)"
         return self.async_create_entry(title=title, data=self._data)
 
     @staticmethod

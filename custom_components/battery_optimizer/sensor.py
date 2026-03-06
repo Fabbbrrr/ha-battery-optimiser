@@ -53,10 +53,10 @@ async def async_setup_entry(
 def _device_info(entry: ConfigEntry) -> DeviceInfo:
     return DeviceInfo(
         identifiers={(DOMAIN, entry.entry_id)},
-        name="Battery Optimizer",
-        manufacturer="Battery Optimizer",
-        model="LP Schedule Optimizer",
-        sw_version="0.1.0",
+        name="Battery Optimiser",
+        manufacturer="Battery Optimiser",
+        model="LP Schedule Optimiser",
+        sw_version="0.0.4",
     )
 
 

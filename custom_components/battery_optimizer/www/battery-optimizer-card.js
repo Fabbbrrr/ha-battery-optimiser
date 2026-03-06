@@ -1,6 +1,6 @@
 /**
- * Battery Optimizer Card v0.1.0
- * Interactive Lovelace card for the Battery Optimizer HA integration.
+ * Battery Optimiser Card v0.1.0
+ * Interactive Lovelace card for the Battery Optimiser HA integration.
  *
  * Features:
  *   - Timeline with color-coded slots (charge/discharge/hold/export)
@@ -53,17 +53,17 @@ class BatteryOptimizerCard extends HTMLElement {
       entity: "sensor.battery_optimizer_schedule",
       health_entity: "sensor.battery_optimizer_health",
       state_entity: "sensor.battery_optimizer_optimizer_state",
-      title: "Battery Optimizer",
+      title: "Battery Optimiser",
       show_slots: 24,
     };
   }
 
   setConfig(config) {
     if (!config.entity) {
-      throw new Error("Battery Optimizer Card: 'entity' is required");
+      throw new Error("Battery Optimiser Card: 'entity' is required");
     }
     this._config = {
-      title: "Battery Optimizer",
+      title: "Battery Optimiser",
       show_slots: 24,
       ...config,
     };
@@ -621,8 +621,8 @@ customElements.define("battery-optimizer-card", BatteryOptimizerCard);
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "battery-optimizer-card",
-  name: "Battery Optimizer",
-  description: "Interactive schedule, SOC curve, and controls for the Battery Optimizer integration",
+  name: "Battery Optimiser",
+  description: "Interactive schedule, SOC curve, and controls for the Battery Optimiser integration",
   preview: false,
   documentationURL: "https://github.com/oicir/ha-battery-optimizer",
 });
