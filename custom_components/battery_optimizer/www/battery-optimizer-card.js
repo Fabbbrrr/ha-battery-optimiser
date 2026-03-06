@@ -624,7 +624,7 @@ window.customCards.push({
   name: "Battery Optimiser",
   description: "Interactive schedule, SOC curve, and controls for the Battery Optimiser integration",
   preview: false,
-  documentationURL: "https://github.com/oicir/ha-battery-optimizer",
+  documentationURL: "https://github.com/Fabbbrrr/ha-battery-optimiser",
 });
 
 console.info(
