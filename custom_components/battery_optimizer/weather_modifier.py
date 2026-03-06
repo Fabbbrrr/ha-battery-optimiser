@@ -1,13 +1,13 @@
 """Weather-based forecast confidence modifier and temperature-driven load adjustment.
 
 Two responsibilities:
-1. Solar confidence modifier — scales solar forecast down based on weather conditions
+1. Solar confidence modifier -- scales solar forecast down based on weather conditions
    (cloud cover, precipitation, condition string) so the optimizer is appropriately
    conservative when the weather is bad.
 
-2. Temperature-driven consumption adjustment — adds/removes load kWh per slot based
+2. Temperature-driven consumption adjustment -- adds/removes load kWh per slot based
    on how far the forecast temperature deviates from the learned comfortable range.
-   The temperature→consumption relationship is calibrated via ConsumptionLearner;
+   The temperature->consumption relationship is calibrated via ConsumptionLearner;
    this module just reads it and applies it per slot.
 """
 from __future__ import annotations
@@ -21,7 +21,7 @@ from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
-# Condition → base solar confidence multiplier (0.0 = no sun, 1.0 = full sun)
+# Condition -> base solar confidence multiplier (0.0 = no sun, 1.0 = full sun)
 _CONDITION_CONFIDENCE: dict[str, float] = {
     "sunny": 1.0,
     "clear-night": 1.0,
@@ -47,13 +47,13 @@ class WeatherSnapshot:
     condition: str
     cloud_coverage: float        # 0-100 %
     precipitation_probability: float  # 0-100 %
-    temperature: float           # °C
+    temperature: float           # C
     confidence_multiplier: float # 0.0-1.0 solar yield modifier
 
 
 @dataclass
 class WeatherForecastPoint:
-    """A single entry from the weather entity's forecast attribute."""
+    """A single entry from the weather entity's forecast."""
     dt: datetime
     condition: str
     cloud_coverage: float
@@ -89,14 +89,18 @@ def get_weather_snapshot(hass: HomeAssistant, weather_entity: str | None) -> Wea
     )
 
 
-def get_weather_forecast_points(
+async def async_get_weather_forecast_points(
     hass: HomeAssistant,
     weather_entity: str | None,
     start_dt: datetime,
     n_slots: int,
     slot_minutes: int,
 ) -> list[WeatherForecastPoint]:
-    """Read multi-day forecast from weather entity and return per-slot points.
+    """Fetch weather forecast via the HA service call and return per-slot points.
+
+    HA 2024.3+ removed the ``forecast`` attribute from weather entities.
+    Forecasts are now retrieved via the ``weather.get_forecasts`` service.
+    Falls back to the legacy attribute for older HA versions.
 
     Returns a list of length n_slots. Slots without forecast data inherit the
     current conditions.
@@ -105,8 +109,42 @@ def get_weather_forecast_points(
     if snapshot is None:
         return []
 
-    state = hass.states.get(weather_entity)
-    raw_forecast = state.attributes.get("forecast", []) if state else []
+    raw_forecast: list[dict[str, Any]] = []
+
+    # Try the modern service call first (HA 2024.3+)
+    try:
+        response = await hass.services.async_call(
+            "weather",
+            "get_forecasts",
+            {"entity_id": weather_entity, "type": "hourly"},
+            blocking=True,
+            return_response=True,
+        )
+        if response and weather_entity in response:
+            raw_forecast = response[weather_entity].get("forecast", [])
+    except Exception:
+        _LOGGER.debug("weather.get_forecasts service not available, trying daily")
+
+    # If hourly failed, try daily
+    if not raw_forecast:
+        try:
+            response = await hass.services.async_call(
+                "weather",
+                "get_forecasts",
+                {"entity_id": weather_entity, "type": "daily"},
+                blocking=True,
+                return_response=True,
+            )
+            if response and weather_entity in response:
+                raw_forecast = response[weather_entity].get("forecast", [])
+        except Exception:
+            _LOGGER.debug("weather.get_forecasts daily also failed")
+
+    # Last resort: legacy attribute (HA < 2024.3)
+    if not raw_forecast:
+        state = hass.states.get(weather_entity)
+        if state:
+            raw_forecast = state.attributes.get("forecast", [])
 
     # Parse forecast entries
     parsed: list[WeatherForecastPoint] = []
@@ -183,14 +221,14 @@ def apply_weather_to_forecast(
 def apply_temperature_load_adjustment(
     load_kwh: list[float],
     weather_points: list[WeatherForecastPoint],
-    temp_coefficients: dict,  # From ConsumptionLearner: {"slope_heat": kW/°C, "slope_cool": kW/°C, "comfort_band": [low, high]}
+    temp_coefficients: dict,  # From ConsumptionLearner: {"slope_heat": kW/C, "slope_cool": kW/C, "comfort_band": [low, high]}
     slot_hours: float,
 ) -> list[float]:
     """Adjust load per slot based on temperature deviation from comfort band.
 
     temp_coefficients keys:
-      "comfort_low": lower comfort band temp (°C)
-      "comfort_high": upper comfort band temp (°C)
+      "comfort_low": lower comfort band temp (C)
+      "comfort_high": upper comfort band temp (C)
       "slope_heat": additional kW per degree below comfort_low
       "slope_cool": additional kW per degree above comfort_high
     """
@@ -199,8 +237,8 @@ def apply_temperature_load_adjustment(
 
     comfort_low = float(temp_coefficients.get("comfort_low", 18.0))
     comfort_high = float(temp_coefficients.get("comfort_high", 24.0))
-    slope_heat = float(temp_coefficients.get("slope_heat", 0.05))  # kW per °C below comfort
-    slope_cool = float(temp_coefficients.get("slope_cool", 0.08))  # kW per °C above comfort
+    slope_heat = float(temp_coefficients.get("slope_heat", 0.05))  # kW per C below comfort
+    slope_cool = float(temp_coefficients.get("slope_cool", 0.08))  # kW per C above comfort
 
     adjusted = []
     n = min(len(load_kwh), len(weather_points))

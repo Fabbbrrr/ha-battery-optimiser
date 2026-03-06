@@ -38,10 +38,8 @@ Constraints:
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -90,8 +88,6 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="battery_optimizer_lp")
 
 # Variable index offsets
 IDX_EXPORT = 0
@@ -722,8 +718,7 @@ async def async_optimize(
     opt_input: OptimizationInput,
 ) -> OptimizationResult:
     """Run the LP solver asynchronously in a thread pool executor."""
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(_executor, _solve_lp, opt_input)
+    return await hass.async_add_executor_job(_solve_lp, opt_input)
 
 
 def build_optimization_input(

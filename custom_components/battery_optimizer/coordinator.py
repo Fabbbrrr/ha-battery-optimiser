@@ -63,7 +63,7 @@ from .tracker import PlannedVsActualTracker
 from .weather_modifier import (
     apply_temperature_load_adjustment,
     apply_weather_to_forecast,
-    get_weather_forecast_points,
+    async_get_weather_forecast_points,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -261,7 +261,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         weather_entity = merged.get(CONF_WEATHER_ENTITY)
         forecast_confidence = 1.0
         if weather_entity:
-            weather_points = get_weather_forecast_points(
+            weather_points = await async_get_weather_forecast_points(
                 self.hass, weather_entity, now, n_slots, slot_minutes
             )
             if weather_points:
@@ -444,7 +444,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             "action": action,
             "power_kw": power_kw,
             "duration_minutes": duration_minutes,
-            "expires_at": (datetime.now() + timedelta(minutes=duration_minutes)).isoformat(),
+            "expires_at": (dt_util.now() + timedelta(minutes=duration_minutes)).isoformat(),
         }
 
         async def _on_override_expiry(_now):
@@ -452,8 +452,9 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             if self._optimizer_state == STATE_RUNNING:
                 await self.async_refresh()
 
-        self.hass.helpers.event.async_call_later(
-            duration_minutes * 60, _on_override_expiry
+        from homeassistant.helpers.event import async_call_later
+        async_call_later(
+            self.hass, duration_minutes * 60, _on_override_expiry
         )
         await self.async_refresh()
 
