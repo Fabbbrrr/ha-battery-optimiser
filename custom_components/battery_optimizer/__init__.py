@@ -26,13 +26,20 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Register the Lovelace card as a static resource (runs once at HA startup)."""
     global _frontend_registered
     if not _frontend_registered:
-        hass.http.register_static_path(
-            _CARD_URL,
-            str(_CARD_PATH),
-            cache_headers=False,
-        )
+        # HA 2024.7+ renamed register_static_path to async_register_static_paths
+        if hasattr(hass.http, "async_register_static_paths"):
+            from homeassistant.components.http import StaticPathConfig
+            await hass.http.async_register_static_paths(
+                [StaticPathConfig(_CARD_URL, str(_CARD_PATH), cache_headers=False)]
+            )
+        else:
+            hass.http.register_static_path(
+                _CARD_URL,
+                str(_CARD_PATH),
+                cache_headers=False,
+            )
         _frontend_registered = True
-        _LOGGER.debug("Battery Optimizer card registered at %s/%s", _CARD_URL, _CARD_FILE)
+        _LOGGER.debug("Battery Optimiser card registered at %s/%s", _CARD_URL, _CARD_FILE)
     return True
 
 
