@@ -1,14 +1,11 @@
 {
   "domain": "battery_optimizer",
   "name": "Battery Optimizer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "LP-optimized battery charge/discharge/export scheduling based on solar forecasts, weather, and TOU tariffs",
   "documentation": "https://github.com/Fabbbrrr/ha-battery-optimiser",
   "issue_tracker": "https://github.com/Fabbbrrr/ha-battery-optimiser/issues",
-  "requirements": [
-    "scipy>=1.11.0",
-    "numpy>=1.24.0"
-  ],
+  "requirements": [],
   "dependencies": [],
   "after_dependencies": [
     "recorder",

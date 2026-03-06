@@ -1,5 +1,8 @@
 """LP optimizer for battery charge/discharge/export scheduling.
 
+Uses a pure-Python+numpy simplex solver (no scipy dependency).
+numpy is bundled with Home Assistant core and requires no extra install.
+
 Formulation
 -----------
 Decision variables per slot t (6 * n_slots total):
@@ -11,7 +14,7 @@ Decision variables per slot t (6 * n_slots total):
   x[IDX_SOC + t]            = battery SOC (kWh) at end of slot t
 
 Objective (minimise negative revenue):
-  min Σ_t [ -export[t]*export_rate[t]
+  min Sigma_t [ -export[t]*export_rate[t]
             + grid_import[t]*import_rate[t]
             + charge_grid[t]*import_rate[t]
             - (1-aggressiveness)*soc_weight*soc[t] ]
@@ -160,6 +163,262 @@ class OptimizationResult:
     message: str
 
 
+# ---------------------------------------------------------------------------
+# Pure-Python LP solver (replaces scipy.optimize.linprog)
+# ---------------------------------------------------------------------------
+
+class _LPResult:
+    """Minimal result object compatible with the solver interface."""
+    __slots__ = ("x", "fun", "success", "message")
+
+    def __init__(
+        self,
+        x: np.ndarray | None,
+        fun: float,
+        success: bool,
+        message: str,
+    ) -> None:
+        self.x = x
+        self.fun = fun
+        self.success = success
+        self.message = message
+
+
+def _linprog(
+    c: np.ndarray,
+    A_ub: np.ndarray | None = None,
+    b_ub: np.ndarray | None = None,
+    A_eq: np.ndarray | None = None,
+    b_eq: np.ndarray | None = None,
+    bounds: list[tuple[float, float | None]] | None = None,
+    timeout: float = 30.0,
+) -> _LPResult:
+    """Solve a linear program: minimize c @ x subject to linear constraints.
+
+    This is a pure-Python+numpy replacement for scipy.optimize.linprog.
+    Uses the Big-M tableau simplex method with Bland's rule for anti-cycling.
+
+    Parameters
+    ----------
+    c : array-like, shape (n,)
+        Objective coefficients.
+    A_ub : array-like, shape (m_ub, n), optional
+        Inequality constraint matrix (A_ub @ x <= b_ub).
+    b_ub : array-like, shape (m_ub,), optional
+        Inequality constraint RHS.
+    A_eq : array-like, shape (m_eq, n), optional
+        Equality constraint matrix (A_eq @ x = b_eq).
+    b_eq : array-like, shape (m_eq,), optional
+        Equality constraint RHS.
+    bounds : list of (lo, hi) tuples, optional
+        Variable bounds. Use None for unbounded.
+    timeout : float
+        Maximum solve time in seconds.
+
+    Returns
+    -------
+    _LPResult with fields: x, fun, success, message
+    """
+    t0 = time.monotonic()
+    n = len(c)
+    c = np.asarray(c, dtype=np.float64)
+
+    # --- Parse variable bounds ---
+    lo = np.zeros(n, dtype=np.float64)
+    hi = np.full(n, np.inf, dtype=np.float64)
+    if bounds is not None:
+        for i, (lb, ub) in enumerate(bounds):
+            if lb is not None:
+                lo[i] = lb
+            if ub is not None:
+                hi[i] = ub
+
+    # --- Shift variables: y_i = x_i - lo_i, so y_i >= 0 ---
+    c_offset = float(c @ lo)
+
+    # --- Collect equality constraints (shifted) ---
+    eq_A_list: list[np.ndarray] = []
+    eq_b_list: list[float] = []
+    if A_eq is not None:
+        A_e = np.asarray(A_eq, dtype=np.float64)
+        b_e = np.asarray(b_eq, dtype=np.float64)
+        shifted = b_e - A_e @ lo
+        for i in range(A_e.shape[0]):
+            eq_A_list.append(A_e[i])
+            eq_b_list.append(float(shifted[i]))
+
+    # --- Collect inequality constraints (shifted) ---
+    ub_A_list: list[np.ndarray] = []
+    ub_b_list: list[float] = []
+    if A_ub is not None:
+        A_u = np.asarray(A_ub, dtype=np.float64)
+        b_u = np.asarray(b_ub, dtype=np.float64)
+        shifted = b_u - A_u @ lo
+        for i in range(A_u.shape[0]):
+            ub_A_list.append(A_u[i])
+            ub_b_list.append(float(shifted[i]))
+
+    # --- Upper-bound constraints: y_i <= hi_i - lo_i for finite hi ---
+    for i in range(n):
+        if np.isfinite(hi[i]):
+            row = np.zeros(n, dtype=np.float64)
+            row[i] = 1.0
+            ub_A_list.append(row)
+            ub_b_list.append(hi[i] - lo[i])
+
+    m_eq = len(eq_A_list)
+    m_ub = len(ub_A_list)
+    m = m_eq + m_ub
+
+    if m == 0:
+        # No constraints — check boundedness
+        x = lo.copy()
+        return _LPResult(x, float(c @ x), True, "Optimal (unconstrained)")
+
+    # --- Build standard-form matrix: A_std @ z = b_std, z >= 0 ---
+    # z = [y (n shifted vars), s (m_ub slack vars)]
+    n_slack = m_ub
+    n_std = n + n_slack
+
+    A_std = np.zeros((m, n_std), dtype=np.float64)
+    b_std = np.zeros(m, dtype=np.float64)
+
+    for i in range(m_eq):
+        A_std[i, :n] = eq_A_list[i]
+        b_std[i] = eq_b_list[i]
+
+    for i in range(m_ub):
+        row_idx = m_eq + i
+        A_std[row_idx, :n] = ub_A_list[i]
+        A_std[row_idx, n + i] = 1.0  # slack
+        b_std[row_idx] = ub_b_list[i]
+
+    # --- Ensure b_std >= 0 (flip negative rows) ---
+    neg_mask = b_std < -1e-12
+    A_std[neg_mask] *= -1.0
+    b_std[neg_mask] *= -1.0
+
+    # --- Identify which rows need artificial variables ---
+    # Inequality rows whose slack was not flipped can use their slack as
+    # initial basic variable. Equality rows and flipped rows need artificials.
+    basis = np.full(m, -1, dtype=np.intp)
+    needs_art: list[int] = []
+
+    for i in range(m_ub):
+        row_idx = m_eq + i
+        slack_col = n + i
+        if abs(A_std[row_idx, slack_col] - 1.0) < 1e-12:
+            basis[row_idx] = slack_col
+        else:
+            needs_art.append(row_idx)
+
+    for i in range(m_eq):
+        needs_art.append(i)
+
+    n_art = len(needs_art)
+    n_total = n_std + n_art
+
+    # --- Extend matrix with artificial columns ---
+    if n_art > 0:
+        A_ext = np.zeros((m, n_total), dtype=np.float64)
+        A_ext[:, :n_std] = A_std
+        for k, row_idx in enumerate(needs_art):
+            art_col = n_std + k
+            A_ext[row_idx, art_col] = 1.0
+            basis[row_idx] = art_col
+        A_std = A_ext
+
+    # --- Build objective with Big-M penalty on artificials ---
+    BIG_M = 1e7
+    c_full = np.zeros(n_total, dtype=np.float64)
+    c_full[:n] = c
+    for k in range(n_art):
+        c_full[n_std + k] = BIG_M
+
+    # --- Build simplex tableau ---
+    # Layout: T[i, :] = [A_std[i,:], b_std[i]]  for i < m
+    #         T[m, :] = [reduced costs,  -z]
+    T = np.zeros((m + 1, n_total + 1), dtype=np.float64)
+    T[:m, :n_total] = A_std
+    T[:m, n_total] = b_std
+    T[m, :n_total] = c_full
+
+    # Zero out reduced costs for initial basic variables
+    for i in range(m):
+        j = basis[i]
+        if abs(T[m, j]) > 1e-15:
+            T[m] -= T[m, j] * T[i]
+
+    # --- Simplex iterations (Bland's rule) ---
+    max_iter = max(10000, 4 * n_total)
+    rhs_col = n_total  # index of the RHS column
+
+    for _iteration in range(max_iter):
+        if time.monotonic() - t0 > timeout:
+            return _LPResult(None, float("inf"), False, "Solver timeout")
+
+        # --- Entering variable: first negative reduced cost (Bland's rule) ---
+        entering = -1
+        for j in range(n_total):
+            if T[m, j] < -1e-9:
+                entering = j
+                break
+        if entering == -1:
+            break  # optimal
+
+        # --- Leaving variable: minimum ratio test ---
+        col = T[:m, entering]
+        rhs = T[:m, rhs_col]
+        leaving = -1
+        min_ratio = float("inf")
+
+        for i in range(m):
+            if col[i] > 1e-12:
+                ratio = rhs[i] / col[i]
+                if ratio < min_ratio - 1e-12:
+                    min_ratio = ratio
+                    leaving = i
+                elif abs(ratio - min_ratio) < 1e-12 and basis[i] < basis[leaving]:
+                    leaving = i  # Bland's tie-breaking
+
+        if leaving == -1:
+            return _LPResult(None, float("-inf"), False, "Problem is unbounded")
+
+        # --- Pivot: row operations ---
+        pivot_val = T[leaving, entering]
+        T[leaving] /= pivot_val
+
+        # Vectorised row elimination
+        factors = T[:, entering].copy()
+        factors[leaving] = 0.0
+        T -= np.outer(factors, T[leaving])
+
+        basis[leaving] = entering
+    else:
+        return _LPResult(None, float("inf"), False, "Max iterations reached")
+
+    # --- Check feasibility: artificial variables must be zero ---
+    for i in range(m):
+        if basis[i] >= n_std and abs(T[i, rhs_col]) > 1e-6:
+            return _LPResult(None, float("inf"), False, "LP is infeasible")
+
+    # --- Extract solution and shift back ---
+    y = np.zeros(n_std, dtype=np.float64)
+    for i in range(m):
+        j = basis[i]
+        if j < n_std:
+            y[j] = max(0.0, T[i, rhs_col])  # clamp numerical noise
+
+    x = y[:n] + lo
+    fun = float(c @ x)
+
+    return _LPResult(x, fun, True, "Optimal")
+
+
+# ---------------------------------------------------------------------------
+# Tariff schedule builder
+# ---------------------------------------------------------------------------
+
 def _parse_time_to_minutes(time_str: str) -> int:
     """Convert HH:MM to minutes since midnight."""
     try:
@@ -239,23 +498,12 @@ def build_tariff_schedule(
     )
 
 
-def _solve_lp(opt_input: OptimizationInput) -> OptimizationResult:
-    """Run the LP solver in a thread (blocking scipy call)."""
-    try:
-        from scipy.optimize import linprog
-    except ImportError:
-        return OptimizationResult(
-            slots=[],
-            estimated_export_revenue=0.0,
-            energy_security_score=0.0,
-            forecast_confidence=0.0,
-            solve_time_ms=0.0,
-            problem_size=0,
-            objective_value=0.0,
-            success=False,
-            message="scipy not installed — run: pip install scipy",
-        )
+# ---------------------------------------------------------------------------
+# LP problem builder and solver
+# ---------------------------------------------------------------------------
 
+def _solve_lp(opt_input: OptimizationInput) -> OptimizationResult:
+    """Build and solve the battery scheduling LP (pure-Python, no scipy)."""
     t_start = time.monotonic()
 
     T = opt_input.n_slots
@@ -268,8 +516,7 @@ def _solve_lp(opt_input: OptimizationInput) -> OptimizationResult:
     soc_weight = 0.01  # small weight to prefer holding charge
 
     for t in range(T):
-        base = t
-        # Export earns revenue → negative cost
+        # Export earns revenue -> negative cost
         c[IDX_EXPORT * T + t] = -opt_input.tariff.export_rate[t]
         # Grid import costs money
         c[IDX_GRID_IMPORT * T + t] = opt_input.tariff.import_rate[t]
@@ -355,8 +602,7 @@ def _solve_lp(opt_input: OptimizationInput) -> OptimizationResult:
             ineq_rhs.append(-deficit)
 
     # 4. Energy security constraint at bridge point:
-    #    soc[bridge_slot] >= energy_needed
-    #    → -soc[bridge_slot] <= -energy_needed
+    #    soc[bridge_slot] >= energy_needed  ->  -soc[bridge_slot] <= -energy_needed
     bridge = min(opt_input.bridge_slot, T - 1)
     energy_needed = min(opt_input.energy_needed_kwh, opt_input.capacity_kwh)
     if energy_needed > opt_input.min_soc_kwh:
@@ -369,22 +615,16 @@ def _solve_lp(opt_input: OptimizationInput) -> OptimizationResult:
     b_ub = np.array(ineq_rhs) if ineq_rows else None
 
     # ------------------------------------------------------------------
-    # Solve
+    # Solve using built-in simplex (no scipy needed)
     # ------------------------------------------------------------------
-    options = {
-        "time_limit": opt_input.solver_timeout,
-        "disp": False,
-    }
-
-    result = linprog(
+    result = _linprog(
         c,
         A_ub=A_ub,
         b_ub=b_ub,
         A_eq=A_eq,
         b_eq=b_eq,
         bounds=bounds,
-        method="highs",
-        options=options,
+        timeout=opt_input.solver_timeout,
     )
 
     solve_ms = (time.monotonic() - t_start) * 1000
