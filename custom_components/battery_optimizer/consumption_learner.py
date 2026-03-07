@@ -192,6 +192,11 @@ class ConsumptionLearner:
             _LOGGER.error("Failed to read recorder statistics for %s: %s", consumption_entity, err)
             return
 
+        _LOGGER.info(
+            "Recorder returned stats for %d statistic IDs (looking for '%s')",
+            len(stats),
+            consumption_entity,
+        )
         entity_stats = stats.get(consumption_entity, [])
         if not entity_stats:
             _LOGGER.warning(
@@ -277,12 +282,25 @@ class ConsumptionLearner:
             except (KeyError, ValueError, TypeError):
                 continue
 
+        _LOGGER.info(
+            "Recorder: %d raw stat records → %d usable observations after delta computation",
+            len(entity_stats_sorted),
+            len(new_observations),
+        )
         if new_observations:
             self._observations = new_observations
             self._rebuild_profiles()
             _LOGGER.info(
                 "ConsumptionLearner trained on %d hourly observations",
                 len(new_observations),
+            )
+        else:
+            _LOGGER.warning(
+                "ConsumptionLearner: 0 observations after processing %d stat records for '%s'. "
+                "Check that the entity has at least 2 hourly stat records in "
+                "Developer Tools → Statistics.",
+                len(entity_stats_sorted),
+                consumption_entity,
             )
 
     def record_observation(

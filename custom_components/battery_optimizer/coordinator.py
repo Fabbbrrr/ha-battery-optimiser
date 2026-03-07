@@ -158,11 +158,21 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         # Kick off initial recorder training in background, then persist the result
         consumption_entity = cfg.get(CONF_CONSUMPTION_ENTITY)
         if consumption_entity:
+            _LOGGER.info("Consumption learner: scheduling startup training for '%s'", consumption_entity)
             async def _train_and_persist() -> None:
-                await self._learner.async_train_from_recorder(self.hass, consumption_entity)
-                if self._learner_storage:
-                    await self._learner_storage.async_save(self._learner.to_storage())
-                    _LOGGER.debug("Consumption learner trained and persisted at startup")
+                try:
+                    await self._learner.async_train_from_recorder(self.hass, consumption_entity)
+                    status = self._learner.get_learning_status()
+                    _LOGGER.info(
+                        "Consumption learner startup training complete — trained=%s, observations=%d",
+                        status.get("is_trained"),
+                        status.get("observation_count", 0),
+                    )
+                    if self._learner_storage:
+                        await self._learner_storage.async_save(self._learner.to_storage())
+                        _LOGGER.debug("Consumption learner state persisted")
+                except Exception as err:
+                    _LOGGER.error("Consumption learner startup training failed: %s", err, exc_info=True)
             self.hass.async_create_task(_train_and_persist())
 
         self._setup_forecast_listener()
