@@ -4,7 +4,7 @@
  * Entities are auto-discovered from hass.states.
  */
 
-const PREFIX = 'sensor.battery_optimizer';
+const PREFIX = 'sensor.battery_optimiser';
 const ENTITIES = {
   schedule:  `${PREFIX}_schedule`,
   health:    `${PREFIX}_health`,
@@ -778,7 +778,7 @@ class BatteryOptimizerPanel extends HTMLElement {
 
     // All battery_optimizer sensors
     const allEntities = Object.entries(this._hass?.states || {})
-      .filter(([id]) => id.startsWith('sensor.battery_optimizer') || id.startsWith('button.battery_optimizer'))
+      .filter(([id]) => id.startsWith('sensor.battery_optimiser') || id.startsWith('button.battery_optimiser'))
       .map(([id, st]) => {
         const ok = !['unavailable','unknown','none'].includes(st.state);
         return `
