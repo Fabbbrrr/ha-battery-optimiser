@@ -176,11 +176,16 @@ class BatteryOptimizerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         })
 
+        suggested_text = (
+            "Detected SOC sensors: " + ", ".join(suggestions[:3])
+            if suggestions else
+            "No SOC sensors auto-detected — search for a sensor whose name contains 'soc' or 'charge'."
+        )
         return self.async_show_form(
             step_id="user",
             data_schema=schema,
             errors=errors,
-            description_placeholders={"suggested": ", ".join(suggestions[:3]) if suggestions else ""},
+            description_placeholders={"suggested": suggested_text},
         )
 
     async def async_step_export_window(self, user_input: dict[str, Any] | None = None) -> FlowResult:
@@ -244,11 +249,16 @@ class BatteryOptimizerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         })
 
+        suggested_text = (
+            "Detected forecast sensors: " + ", ".join(suggestions[:3])
+            if suggestions else
+            "No forecast sensors auto-detected — search for a sensor whose name contains 'solcast', 'forecast', or 'solar'."
+        )
         return self.async_show_form(
             step_id="solar_forecast",
             data_schema=schema,
             errors=errors,
-            description_placeholders={"suggested": ", ".join(suggestions[:3]) if suggestions else ""},
+            description_placeholders={"suggested": suggested_text},
         )
 
     async def async_step_optional_tariffs(self, user_input: dict[str, Any] | None = None) -> FlowResult:

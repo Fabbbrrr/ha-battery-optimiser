@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -42,6 +42,8 @@ def detect_and_fire_schedule_changes(
 
         try:
             slot_dt = datetime.fromisoformat(slot_start_str)
+            if slot_dt.tzinfo is None:
+                slot_dt = slot_dt.replace(tzinfo=timezone.utc)
         except ValueError:
             continue
 

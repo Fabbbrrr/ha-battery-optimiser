@@ -2,179 +2,179 @@
   "config": {
     "step": {
       "user": {
-        "title": "Battery System",
-        "description": "Configure your battery. You need a sensor that reports the current state of charge (SOC) as a percentage (0-100%).",
+        "title": "Step 1 of 7 — Battery System (Required)",
+        "description": "Configure your battery hardware. You need a sensor that reports the current **state of charge (SOC) as a percentage (0–100%)**.\n\nTip — kWh vs kW: **kWh** = energy stored (like litres in a tank). **kW** = power (how fast energy flows). Capacity is always kWh; charge/discharge rates are kW.\n\n{suggested}",
         "data": {
-          "battery_soc_entity": "Battery SOC sensor (percentage, 0-100%)",
-          "battery_capacity_kwh": "Usable battery capacity",
-          "min_soc_floor_percent": "Minimum SOC floor — battery will never discharge below this level"
+          "battery_soc_entity": "Battery SOC sensor (0–100 %)",
+          "battery_capacity_kwh": "Usable battery capacity (kWh)",
+          "min_soc_floor_percent": "Minimum SOC floor (%)"
         },
         "data_description": {
-          "battery_soc_entity": "Select the sensor that reports your battery's current charge level as a percentage. Example: sensor.battery_soc, sensor.powerwall_charge. This is NOT the power sensor (kW) — it must be the charge level (%).",
-          "battery_capacity_kwh": "The usable capacity of your battery in kWh. Check your battery specs — for example, a Tesla Powerwall 2 is 13.5 kWh, a BYD HVS is 5.1-12.8 kWh.",
-          "min_soc_floor_percent": "The battery will never be discharged below this percentage. Set to 10-20% to preserve battery health and keep a safety reserve. Your inverter may also enforce its own minimum."
+          "battery_soc_entity": "Must report charge level as a plain percentage, e.g. 74.3. Examples: sensor.battery_soc, sensor.powerwall_charge, sensor.solis_battery_soc. Do NOT pick a power sensor (kW) or voltage sensor (V) — it must be percentage (%).",
+          "battery_capacity_kwh": "Usable capacity in kWh from your battery datasheet. Common sizes: Tesla Powerwall 2 = 13.5 kWh · BYD HVS 10 = 10.2 kWh · Sonnen eco 8 = 8 kWh · GivEnergy 9.5 = 9.5 kWh. Use the *usable* figure, not the total (they differ by ~5–10%).",
+          "min_soc_floor_percent": "The battery will never discharge below this level. Recommended: 10–20% to protect battery health and keep an emergency reserve. Your inverter may also have its own hard minimum — this setting should be at or above that."
         }
       },
       "export_window": {
-        "title": "Export Bonus Window & Rates",
-        "description": "Configure your energy retailer's export bonus window (peak feed-in tariff hours) and your electricity rates. All rates are in your local currency per kWh.",
+        "title": "Step 2 of 7 — Export Bonus Window & Rates (Required)",
+        "description": "Enter your electricity retailer's **peak feed-in tariff (FiT) window** and rates. Enter rates as a decimal — e.g. enter **0.45** for 45 cents/kWh or £0.45/kWh. Check your electricity bill or retailer's website.",
         "data": {
-          "export_bonus_start": "Export bonus start time",
-          "export_bonus_end": "Export bonus end time",
-          "export_bonus_rate": "Export bonus rate — what you earn per kWh during the bonus window",
-          "standard_export_rate": "Standard export rate — what you earn per kWh outside the bonus window",
-          "standard_import_rate": "Standard import rate — what you pay per kWh to buy from the grid"
+          "export_bonus_start": "Export bonus window — start time",
+          "export_bonus_end": "Export bonus window — end time",
+          "export_bonus_rate": "Export bonus rate (per kWh, during bonus window)",
+          "standard_export_rate": "Standard export rate (per kWh, outside bonus window)",
+          "standard_import_rate": "Standard import rate (per kWh, what you pay to buy from grid)"
         },
         "data_description": {
-          "export_bonus_start": "When your retailer's high feed-in tariff window starts. Example: 18:00 for an evening peak export bonus.",
-          "export_bonus_end": "When the high feed-in tariff window ends. Example: 20:00.",
-          "export_bonus_rate": "The rate you earn per kWh during the bonus window. Example: 0.45 for 45 cents/kWh. Check your retailer's feed-in tariff schedule.",
-          "standard_export_rate": "The rate you earn per kWh for exports outside the bonus window. Example: 0.05 for 5 cents/kWh.",
-          "standard_import_rate": "The standard rate you pay to buy electricity from the grid. Example: 0.30 for 30 cents/kWh."
+          "export_bonus_start": "When your retailer's high feed-in rate starts. Examples: 16:00 (Amber evening peak) · 17:00 (Intelligent Octopus dispatch) · 18:00 (many SEG tariffs).",
+          "export_bonus_end": "When the bonus window ends. Examples: 20:00 · 21:00. Set start = end (e.g. both 00:00) if you have no bonus window — leave the rate at 0.",
+          "export_bonus_rate": "Rate you earn per kWh exported during the bonus window. Examples: 0.45 (45p/kWh UK peak FiT) · 1.20 (120c/kWh Amber spot peak) · 0.60 (60c AUS peak). Check your retailer's FiT schedule.",
+          "standard_export_rate": "Rate you earn per kWh for exports outside the bonus window. Examples: 0.05 (5p/kWh standard SEG) · 0.08 · 0.12. Often much lower than the bonus rate.",
+          "standard_import_rate": "What you normally pay per kWh to buy from the grid. Examples: 0.28 (28p/kWh UK average) · 0.30 (30c US average) · 0.35 (35c AUS average). Use your off-peak rate if you have a time-of-use tariff."
         }
       },
       "solar_forecast": {
-        "title": "Solar Forecast",
-        "description": "Select your solar production forecast sensor. Forecast.Solar and Solcast formats are auto-detected. The optimizer uses this to predict when your panels will generate excess energy.",
+        "title": "Step 3 of 7 — Solar Forecast (Required)",
+        "description": "Select your solar generation **forecast** sensor. The optimizer uses tomorrow's expected solar to plan when to charge, hold, or export.\n\nSupported integrations (auto-detected): **Forecast.Solar**, **Solcast**, or any sensor with hourly forecast data in its attributes.\n\n{suggested}",
         "data": {
-          "solar_forecast_entity": "Solar forecast sensor (energy in kWh or power in W/kW)"
+          "solar_forecast_entity": "Solar forecast sensor"
         },
         "data_description": {
-          "solar_forecast_entity": "Select a sensor that provides solar generation forecasts. Supported integrations: Forecast.Solar (sensor.energy_production_today), Solcast (sensor.solcast_pv_forecast_today), or any sensor with hourly forecast data in its attributes. The format is auto-detected."
+          "solar_forecast_entity": "Pick the sensor that provides *future* solar predictions, not just today's total. Forecast.Solar: sensor.energy_production_today (has 'wh_period' or 'watts' attributes). Solcast: sensor.solcast_pv_forecast_today (has 'detailedForecast' attribute). Generic: any sensor whose state is today's expected kWh total. The format is detected automatically — you just need to pick the right entity."
         }
       },
       "optional_tariffs": {
-        "title": "Additional Tariff Periods (optional)",
-        "description": "Configure special rate periods. Leave all fields blank if you only have a flat-rate tariff. These help the optimizer decide when to charge from the grid vs discharge the battery.",
+        "title": "Step 4 of 7 — Additional Tariff Periods (Optional)",
+        "description": "Configure time-of-use rate windows if your tariff has them. **Leave all fields blank** if you have a simple flat-rate tariff.\n\nCommon examples: Octopus Go / Intelligent (cheap overnight 23:30–05:30) · Economy 7 (01:00–08:00) · Amber off-peak. Configuring these helps the optimizer decide the best times to charge from the grid.",
         "data": {
-          "free_import_start": "Free/cheap import start",
-          "free_import_end": "Free/cheap import end",
-          "peak_import_start": "Peak import start",
-          "peak_import_end": "Peak import end",
-          "peak_import_rate": "Peak import rate — what you pay per kWh during peak hours",
-          "grid_charging_enabled": "Allow grid charging during free/cheap import windows"
+          "free_import_start": "Cheap/free import window — start",
+          "free_import_end": "Cheap/free import window — end",
+          "peak_import_start": "Peak import window — start (most expensive hours)",
+          "peak_import_end": "Peak import window — end",
+          "peak_import_rate": "Peak import rate (per kWh, during peak hours)",
+          "grid_charging_enabled": "Allow grid charging during the cheap import window"
         },
         "data_description": {
-          "free_import_start": "Start of your free or discounted import window. Example: 11:00 for a midday solar soak tariff. Leave blank if you don't have one.",
-          "free_import_end": "End of the free/cheap import window. Example: 14:00.",
-          "peak_import_start": "Start of your peak import rate window (highest cost period). Example: 17:00 for an evening peak.",
-          "peak_import_end": "End of the peak rate window. Example: 21:00.",
-          "peak_import_rate": "The rate you pay per kWh during peak hours. Example: 0.55 for 55 cents/kWh.",
-          "grid_charging_enabled": "If enabled, the optimizer may charge the battery from the grid during free/cheap import windows to maximise savings. Only enable if your tariff allows cost-effective grid charging."
+          "free_import_start": "Start of your cheap or free import window. Examples: 23:30 (Octopus Go) · 01:00 (Economy 7) · 11:00 (midday solar soak). Leave blank if you have no cheap window.",
+          "free_import_end": "End of the cheap window. Examples: 05:30 (Octopus Go) · 08:00 (Economy 7) · 14:00.",
+          "peak_import_start": "Start of your most expensive import period. Examples: 16:00 · 17:00. Leave blank if your tariff has no peak rate.",
+          "peak_import_end": "End of the peak import period. Examples: 20:00 · 21:00.",
+          "peak_import_rate": "What you pay per kWh during peak hours. Examples: 0.55 (55p/kWh UK peak) · 0.65 · 0.80. Should be higher than your standard import rate.",
+          "grid_charging_enabled": "Let the optimizer charge the battery from the grid during the cheap window above. Only enable if grid charging is cost-effective on your tariff (i.e. the cheap rate + battery cycle cost is less than the peak export rate you'll earn)."
         }
       },
       "optional_consumption": {
-        "title": "Home Consumption Learning (optional)",
-        "description": "Select a sensor that tracks your home's total energy consumption. The optimizer learns your usage patterns over time (weekday vs weekend, time of day) to make better scheduling decisions. Skip this if you prefer a static baseline.",
+        "title": "Step 5 of 7 — Home Consumption (Optional)",
+        "description": "Help the optimizer predict how much energy your home will use. It learns your patterns from history (weekdays vs weekends, morning vs evening).\n\nTip — kW vs kWh: The **sensor** must be cumulative **kWh** (energy, goes up over time). The **baseline** below is in **kW** (power, your average draw right now).",
         "data": {
-          "consumption_entity": "Home consumption sensor (cumulative energy in kWh)",
-          "consumption_baseline_kw": "Baseline consumption — your average home power draw",
-          "consumption_profile_granularity": "Profile granularity — how the optimizer groups usage patterns",
-          "consumption_lookback_days": "How many days of history to learn from"
+          "consumption_entity": "Home consumption sensor (cumulative kWh — must increase over time)",
+          "consumption_baseline_kw": "Fallback baseline — average home power draw (kW)",
+          "consumption_profile_granularity": "Learning granularity",
+          "consumption_lookback_days": "Days of history to learn from"
         },
         "data_description": {
-          "consumption_entity": "Select a sensor that tracks total home energy consumption (cumulative kWh). Example: sensor.home_energy_consumption, sensor.grid_consumption. This must be an ENERGY sensor (kWh), not a power sensor (kW/W). It should increase over time as energy is used.",
-          "consumption_baseline_kw": "Your home's average power draw in kW, used as a fallback before the system learns your patterns. Example: 0.8 for a typical home. A home with AC/heating may average 1.5-2.5 kW.",
-          "consumption_profile_granularity": "How the optimizer groups your usage patterns. 'Weekday/Weekend' is recommended as most homes use different amounts on work days vs rest days.",
-          "consumption_lookback_days": "Number of days of history to analyse when learning your consumption patterns. 30 days is a good default. Use more (90-180) for seasonal patterns."
+          "consumption_entity": "A sensor that measures total grid energy consumed — it must increase over time as you use electricity. Examples: sensor.grid_consumption_kwh · sensor.home_energy_meter · sensor.electricity_meter_total. DO NOT pick a power sensor in kW or W — those show instantaneous draw, not cumulative energy. Check the sensor's unit: it must be kWh.",
+          "consumption_baseline_kw": "Your home's average power draw in kilowatts (kW). This is used before patterns are learned and as a sanity-check fallback. Typical values: 0.4–0.7 kW (small flat, efficient home) · 0.8–1.2 kW (average house) · 1.5–2.5 kW (large home or with EV/heat pump). Remember: 1 kW for 1 hour = 1 kWh.",
+          "consumption_profile_granularity": "How the optimizer groups your usage history. 'Weekday/Weekend' is recommended — most homes use more energy on weekdays (commute patterns, heating schedules). 'Full 7-day' gives the most detail but needs more data (90+ days).",
+          "consumption_lookback_days": "How many days of recorder history to train on. 30 days captures recent patterns. 90 days smooths out short-term anomalies. Use 180+ days to capture seasonal variation (summer vs winter usage)."
         }
       },
       "optional_weather": {
-        "title": "Weather Integration (optional)",
-        "description": "Adding a weather entity improves forecast accuracy. On cloudy/rainy days, the optimizer will reduce its confidence in solar predictions and adjust the schedule conservatively. It also learns how temperature affects your home's energy use (heating/cooling).",
+        "title": "Step 6 of 7 — Weather Integration (Optional)",
+        "description": "Connect a weather entity to improve solar forecast confidence. On overcast days the optimizer will trust the solar forecast less and keep more charge in reserve. It also adjusts predicted home load based on temperature (more heating in winter, more cooling in summer).",
         "data": {
           "weather_entity": "Weather forecast entity"
         },
         "data_description": {
-          "weather_entity": "Select your weather integration entity. Example: weather.home, weather.openweathermap. Any HA weather integration works — it provides cloud cover and temperature data."
+          "weather_entity": "Any Home Assistant weather integration works. Examples: weather.home (Met.no, default in most HA installs) · weather.openweathermap · weather.pirateweather · weather.accuweather. If you have multiple, pick the one with the best local accuracy for your site."
         }
       },
       "optional_battery_rates": {
-        "title": "Inverter Rate Limits (optional)",
-        "description": "Set the maximum charge, discharge, and export power for your inverter. The defaults (5 kW) work for most residential systems. Only change these if you know your inverter's exact limits.",
+        "title": "Step 7 of 7 — Inverter Power Limits (Optional)",
+        "description": "Set how fast your inverter can charge, discharge, and export. These are **power limits in kW** (not energy in kWh).\n\nTip: kW = rate of flow (like water flow rate). kWh = total energy (like litres). A 5 kW inverter charging for 2 hours stores 10 kWh.\n\nThe defaults (5 kW) suit most 5 kW hybrid inverters. Check your inverter datasheet if unsure.",
         "data": {
-          "max_charge_rate_kw": "Max charge rate — maximum power the inverter can push into the battery",
-          "max_discharge_rate_kw": "Max discharge rate — maximum power the inverter can pull from the battery",
-          "max_export_limit_kw": "Max grid export — maximum power your system can export to the grid",
-          "max_export_limit_entity": "Dynamic export limit sensor (optional — overrides the static value above)"
+          "max_charge_rate_kw": "Max charge rate (kW) — how fast the inverter charges the battery",
+          "max_discharge_rate_kw": "Max discharge rate (kW) — how fast the inverter can discharge",
+          "max_export_limit_kw": "Max export to grid (kW) — network or retailer export cap",
+          "max_export_limit_entity": "Dynamic export limit sensor (kW) — overrides the static cap above"
         },
         "data_description": {
-          "max_charge_rate_kw": "Maximum charging power in kW. This is a POWER value (kW), not energy (kWh). Example: 5.0 for a 5 kW hybrid inverter. Check your inverter's datasheet.",
-          "max_discharge_rate_kw": "Maximum discharging power in kW. Usually the same as charge rate. Example: 5.0.",
-          "max_export_limit_kw": "Maximum power your system can export to the grid in kW. This may be limited by your retailer or network operator. Example: 5.0 for a standard 5 kW export limit, or 10.0 if approved for higher export.",
-          "max_export_limit_entity": "Optional: select a sensor that provides a dynamic export limit (in kW). Useful if your network operator adjusts your export limit via DRED or similar. Example: sensor.export_limit. Leave empty to use the static value above."
+          "max_charge_rate_kw": "Maximum charge power in kW from your inverter datasheet. Examples: 3.6 kW (Solax X1) · 5.0 kW (GivEnergy 5kW, Solis 5G, Sungrow SH5) · 6.0 kW (GivEnergy 6kW) · 7.5 kW (Tesla Powerwall 2). This is a POWER value (kW) — not the battery size (kWh).",
+          "max_discharge_rate_kw": "Maximum discharge power in kW. Usually the same as the charge rate for hybrid inverters. Examples: 5.0 · 6.0 · 7.5. Some batteries have asymmetric charge/discharge limits — check your datasheet.",
+          "max_export_limit_kw": "Maximum power your system can send to the grid in kW. This is usually set by your network operator or DNO, not your inverter. Examples: 3.68 kW (common UK G98 limit for single-phase) · 5.0 · 10.0 (if approved for higher export). Check your grid connection agreement.",
+          "max_export_limit_entity": "Optional: a sensor that provides a real-time export limit in kW. Useful for dynamic export control (DRED, Agile pricing-based curtailment, or DNO demand response). Example: sensor.export_cap_kw. Leave blank to use the fixed limit above."
         }
       }
     },
     "error": {
-      "entity_not_found": "The selected entity was not found. Make sure it exists and is available."
+      "entity_not_found": "Entity not found — make sure it exists and is available in Home Assistant."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Battery Optimiser Options"
+        "title": "Battery Optimiser Settings"
       },
       "optimizer_settings": {
         "title": "Optimizer Settings",
         "data": {
-          "aggressiveness": "Aggressiveness — 0 = hold charge conservatively, 1 = maximize export revenue",
+          "aggressiveness": "Aggressiveness (0 = hold charge, 1 = maximise export revenue)",
           "slot_granularity_minutes": "Schedule slot size",
-          "lookahead_hours": "Optimization lookahead — how far ahead to plan",
-          "recalculation_interval_minutes": "Recalculation interval — how often to re-optimize",
-          "bridge_to_fallback_time": "Fallback bridge-to time (if no solar forecast data)"
+          "lookahead_hours": "Planning lookahead window (hours)",
+          "recalculation_interval_minutes": "Recalculation interval (minutes)",
+          "bridge_to_fallback_time": "Energy-security bridge-to time"
         },
         "data_description": {
-          "aggressiveness": "Controls the trade-off between saving energy for home use vs exporting for revenue. 0.3 is a good starting point. Increase towards 1.0 if you want maximum export income.",
-          "slot_granularity_minutes": "The time resolution of the schedule. 30 minutes is recommended for a good balance of accuracy and performance.",
-          "lookahead_hours": "How many hours ahead the optimizer plans. 24-48 hours covers a full day-night cycle. Longer lookahead is useful with multi-day forecast data.",
-          "recalculation_interval_minutes": "How often the schedule is recalculated. 30 minutes balances responsiveness with system load.",
-          "bridge_to_fallback_time": "If solar forecast is unavailable, the optimizer ensures enough battery charge to bridge to this time. Example: 06:00 (next sunrise)."
+          "aggressiveness": "Trade-off between keeping charge for home use vs exporting for income. 0.0 = very conservative (holds charge). 0.3–0.5 = balanced (good default). 1.0 = aggressive exporter. Start at 0.3 and adjust based on your results.",
+          "slot_granularity_minutes": "Time resolution of the schedule. 30 minutes is recommended — matches most time-of-use tariff boundaries and solar forecast granularity. Use 15 minutes only if your tariff has 15-minute intervals.",
+          "lookahead_hours": "How far ahead the optimizer plans. 24 hours covers one day. 48 hours is useful with multi-day solar forecasts (Solcast provides 7 days). Longer lookahead increases solve time.",
+          "recalculation_interval_minutes": "How often the full schedule is recalculated from scratch. 30 minutes is a good balance. The schedule also recalculates automatically when the solar forecast changes.",
+          "bridge_to_fallback_time": "If the solar forecast is unavailable, the optimizer ensures there's enough charge to reach this time (typically the next sunrise). Example: 06:00. This prevents running flat overnight when forecast data is missing."
         }
       },
       "tariff_settings": {
         "title": "Tariff & Rates",
         "data": {
-          "export_bonus_start": "Export bonus start time",
-          "export_bonus_end": "Export bonus end time",
-          "export_bonus_rate": "Export bonus rate ($/kWh)",
-          "standard_export_rate": "Standard export rate ($/kWh)",
-          "standard_import_rate": "Standard import rate ($/kWh)",
-          "free_import_start": "Free/cheap import start",
-          "free_import_end": "Free/cheap import end",
-          "grid_charging_enabled": "Allow grid charging during cheap windows"
+          "export_bonus_start": "Export bonus window — start",
+          "export_bonus_end": "Export bonus window — end",
+          "export_bonus_rate": "Export bonus rate (per kWh)",
+          "standard_export_rate": "Standard export rate (per kWh)",
+          "standard_import_rate": "Standard import rate (per kWh)",
+          "free_import_start": "Cheap/free import window — start",
+          "free_import_end": "Cheap/free import window — end",
+          "grid_charging_enabled": "Allow grid charging during cheap import window"
         }
       },
       "entity_settings": {
         "title": "Entity Mappings",
         "data": {
-          "battery_soc_entity": "Battery SOC sensor (%)",
-          "solar_forecast_entity": "Solar forecast sensor",
-          "consumption_entity": "Home consumption sensor (cumulative kWh)",
+          "battery_soc_entity": "Battery SOC sensor (% — charge level, not power)",
+          "solar_forecast_entity": "Solar forecast sensor (with hourly forecast in attributes)",
+          "consumption_entity": "Home consumption sensor (cumulative kWh — not power in kW)",
           "weather_entity": "Weather entity",
           "max_export_limit_entity": "Dynamic export limit sensor (kW)"
         },
         "data_description": {
-          "battery_soc_entity": "Sensor reporting battery charge level as percentage (0-100%). NOT power in kW.",
-          "solar_forecast_entity": "Solar forecast sensor with hourly predictions in attributes.",
-          "consumption_entity": "Cumulative energy sensor in kWh (increases over time). NOT instantaneous power in kW/W.",
-          "weather_entity": "Weather forecast entity providing cloud cover and temperature.",
-          "max_export_limit_entity": "Optional sensor providing dynamic export limit in kW."
+          "battery_soc_entity": "Must report 0–100 (percentage). NOT a power sensor (kW) or voltage (V).",
+          "solar_forecast_entity": "Forecast.Solar or Solcast sensor with per-hour forecast data in attributes. Format auto-detected.",
+          "consumption_entity": "Cumulative energy sensor in kWh that increases over time. NOT instantaneous power in kW or W.",
+          "weather_entity": "Any HA weather entity — provides cloud cover and temperature for forecast adjustment.",
+          "max_export_limit_entity": "Optional real-time export cap sensor in kW. Overrides the static export limit."
         }
       },
       "advanced_settings": {
         "title": "Advanced Settings",
         "data": {
-          "fallback_mode": "Fallback mode when data is unavailable",
-          "solver_timeout_seconds": "Solver timeout",
-          "data_retention_days": "Historical data retention",
+          "fallback_mode": "Fallback behaviour when optimizer cannot run",
+          "solver_timeout_seconds": "LP solver timeout (seconds)",
+          "data_retention_days": "Historical data retention (days)",
           "min_soc_floor_percent": "Minimum SOC floor (%)"
         },
         "data_description": {
-          "fallback_mode": "What to do when the optimizer can't run (missing data, errors). 'Conservative hold' keeps the battery at current level. 'Last known good' replays the previous schedule.",
-          "solver_timeout_seconds": "Maximum time allowed for the LP solver. Increase if you see timeout errors on slower hardware.",
-          "data_retention_days": "How long to keep historical consumption data for learning. Longer retention captures seasonal patterns.",
-          "min_soc_floor_percent": "Battery will never discharge below this percentage. Acts as a safety reserve."
+          "fallback_mode": "What to do when the optimizer fails (missing forecast, solver error). 'Conservative hold' — stop charging/discharging and hold the battery at its current level. 'Last known good' — replay the most recent successful schedule. 'Error state' — mark as unavailable.",
+          "solver_timeout_seconds": "Maximum seconds allowed for the LP solver per cycle. Increase to 60–120 on slow hardware (e.g. Raspberry Pi 3) if you see solver timeout errors in the logs.",
+          "data_retention_days": "How many days of planned-vs-actual tracking data to keep. 90 days is a good default. Increase to 365 for year-round seasonal analysis.",
+          "min_soc_floor_percent": "Hard lower limit — the battery will never be scheduled below this SOC. Acts as a safety reserve and battery health protection. Should be at or above your inverter's own minimum."
         }
       }
     }

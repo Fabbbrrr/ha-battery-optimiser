@@ -7,7 +7,7 @@ original predictions. Data persists in .storage/ with configurable retention.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -66,6 +66,8 @@ class PlannedVsActualTracker:
             try:
                 slot_end_str = slot.get("end", "")
                 slot_end = datetime.fromisoformat(slot_end_str)
+                if slot_end.tzinfo is None:
+                    slot_end = slot_end.replace(tzinfo=timezone.utc)
             except (ValueError, TypeError):
                 continue
 
@@ -143,6 +145,8 @@ class PlannedVsActualTracker:
             slot_copy = dict(slot)
             try:
                 slot_end = datetime.fromisoformat(slot.get("end", ""))
+                if slot_end.tzinfo is None:
+                    slot_end = slot_end.replace(tzinfo=timezone.utc)
                 if slot_end <= now:
                     slot_copy["is_historical"] = True
                     rec = record_by_start.get(slot.get("start"))

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -86,6 +86,8 @@ def _parse_forecast_solar(state) -> list[ForecastSlot]:
         for ts_str, wh in attrs["wh_period"].items():
             try:
                 dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
                 slots.append((dt, float(wh)))
             except (ValueError, TypeError):
                 continue
@@ -96,6 +98,8 @@ def _parse_forecast_solar(state) -> list[ForecastSlot]:
         for ts_str, w in attrs["watts"].items():
             try:
                 dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
                 wh = float(w) * 1.0  # 1 hour period assumed
                 slots.append((dt, wh))
             except (ValueError, TypeError):
@@ -131,6 +135,8 @@ def _parse_solcast(state) -> list[ForecastSlot]:
 
             if isinstance(period_start, str):
                 dt = datetime.fromisoformat(period_start.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
             elif isinstance(period_start, datetime):
                 dt = period_start
             else:
