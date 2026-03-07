@@ -206,23 +206,53 @@ class ConsumptionLearner:
             )
             return
 
+        # Sort stats by timestamp so we can compute per-hour deltas from consecutive sum values.
+        # HA recorder returns the running cumulative sum in stat["sum"] for energy sensors
+        # (state_class: total_increasing). We must compute sum[t] - sum[t-1] to get per-hour kWh.
+        def _stat_ts(s: dict) -> datetime:
+            ts = s.get("start") or s.get("datetime")
+            if isinstance(ts, str):
+                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            else:
+                dt = ts
+            if getattr(dt, "tzinfo", None) is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+
+        try:
+            entity_stats_sorted = sorted(entity_stats, key=_stat_ts)
+        except Exception:
+            entity_stats_sorted = list(entity_stats)
+
         # Convert stats to observations
         new_observations = []
         now = dt_util.now()
-        for stat in entity_stats:
-            try:
-                ts = stat.get("start") or stat.get("datetime")
-                if ts is None:
-                    continue
-                if isinstance(ts, str):
-                    obs_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                else:
-                    obs_dt = ts
-                if getattr(obs_dt, "tzinfo", None) is None:
-                    obs_dt = obs_dt.replace(tzinfo=timezone.utc)
+        prev_sum: float | None = None
 
-                kwh = stat.get("sum") or stat.get("mean", self.baseline_kw)
-                if kwh is None:
+        for stat in entity_stats_sorted:
+            try:
+                obs_dt = _stat_ts(stat)
+
+                current_sum = stat.get("sum")
+                mean_val = stat.get("mean")
+
+                if current_sum is not None:
+                    # Compute per-hour delta from consecutive cumulative sum values.
+                    # Skip the first record (no previous to diff against).
+                    if prev_sum is None:
+                        prev_sum = current_sum
+                        continue
+                    kwh = current_sum - prev_sum
+                    prev_sum = current_sum
+                    # Guard against resets or negative deltas (e.g. sensor replaced)
+                    if kwh < 0:
+                        kwh = 0.0
+                    # Guard against implausibly large spikes (>50 kWh/h) — treat as reset
+                    if kwh > 50.0:
+                        kwh = mean_val if mean_val is not None else self.baseline_kw
+                elif mean_val is not None:
+                    kwh = float(mean_val)
+                else:
                     kwh = self.baseline_kw
 
                 days_ago = (now - obs_dt).days
