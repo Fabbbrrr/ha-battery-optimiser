@@ -211,13 +211,20 @@ class ConsumptionLearner:
         # (state_class: total_increasing). We must compute sum[t] - sum[t-1] to get per-hour kWh.
         def _stat_ts(s: dict) -> datetime:
             ts = s.get("start") or s.get("datetime")
+            if isinstance(ts, (int, float)):
+                # Unix timestamp (returned by some HA recorder versions)
+                return datetime.fromtimestamp(float(ts), tz=timezone.utc)
             if isinstance(ts, str):
                 dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            else:
-                dt = ts
-            if getattr(dt, "tzinfo", None) is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
+            if isinstance(ts, datetime):
+                if ts.tzinfo is None:
+                    return ts.replace(tzinfo=timezone.utc)
+                return ts
+            # Fallback: return epoch so it sorts first and gets skipped
+            return datetime(1970, 1, 1, tzinfo=timezone.utc)
 
         try:
             entity_stats_sorted = sorted(entity_stats, key=_stat_ts)
