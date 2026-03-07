@@ -18,8 +18,12 @@ _CARD_PATH = pathlib.Path(__file__).parent / "www"
 _CARD_URL = f"/battery_optimizer_static"
 _CARD_FILE = "battery-optimizer-card.js"
 _CARD_VERSION = "0.2.0"
+_PANEL_URL_PATH = "battery-optimizer"
+_PANEL_COMPONENT = "battery-optimizer-panel"
+_PANEL_JS = "battery-optimizer-panel.js"
 
 _frontend_registered = False
+_panel_registered = False
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -45,6 +49,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Battery Optimizer from a config entry."""
+    global _panel_registered
+
     hass.data.setdefault(DOMAIN, {})
 
     coordinator = BatteryOptimizerCoordinator(hass, entry)
@@ -55,6 +61,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await async_register_services(hass)
 
+    # Register sidebar panel once per HA instance (survives multiple entries)
+    if not _panel_registered:
+        try:
+            from homeassistant.components.panel_custom import async_register_panel
+            await async_register_panel(
+                hass,
+                webcomponent_name=_PANEL_COMPONENT,
+                frontend_url_path=_PANEL_URL_PATH,
+                sidebar_title="Battery",
+                sidebar_icon="mdi:battery-charging",
+                module_url=f"{_CARD_URL}/{_PANEL_JS}",
+                require_admin=False,
+            )
+            _panel_registered = True
+            _LOGGER.debug("Battery Optimiser sidebar panel registered at /%s", _PANEL_URL_PATH)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Could not register sidebar panel: %s", err)
+
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     return True
@@ -62,6 +86,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    global _panel_registered
+
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
@@ -71,6 +97,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not hass.data[DOMAIN]:
             await async_unregister_services(hass)
             hass.data.pop(DOMAIN)
+
+            if _panel_registered:
+                from homeassistant.components.frontend import async_remove_panel
+                async_remove_panel(hass, _PANEL_URL_PATH)
+                _panel_registered = False
+                _LOGGER.debug("Battery Optimiser sidebar panel removed")
 
     return unload_ok
 
