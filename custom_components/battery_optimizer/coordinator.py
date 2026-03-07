@@ -629,7 +629,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             else None
         )
 
-        # --- Tomorrow and day-after charge window SOC projections ---
+        # --- Tomorrow and day-after SOC projections (charge and export windows) ---
         def _slot_date_offset(slot: dict) -> int | None:
             """Return how many calendar days after today this slot falls on (0=today, 1=tomorrow…)."""
             s = slot.get("start", "")
@@ -647,17 +647,36 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         soc_at_day_after_charge_end = None
         if charge_start_min is not None and charge_end_min is not None:
             for day_offset, attr_name in [(1, "tomorrow"), (2, "day_after")]:
-                day_charge_slots = [
+                day_slots = [
                     s for s in future_slots
                     if _slot_date_offset(s) == day_offset
                     and _slot_in_window(s, charge_start_min, charge_end_min)
                 ]
-                if day_charge_slots:
-                    soc_val = day_charge_slots[-1].get("projected_soc")
+                if day_slots:
+                    soc_val = day_slots[-1].get("projected_soc")
                     if attr_name == "tomorrow":
                         soc_at_tomorrow_charge_end = soc_val
                     else:
                         soc_at_day_after_charge_end = soc_val
+
+        soc_at_tomorrow_export_start = None
+        soc_at_tomorrow_export_end = None
+        soc_at_day_after_export_start = None
+        soc_at_day_after_export_end = None
+        if exp_start_min is not None and exp_end_min is not None:
+            for day_offset, prefix in [(1, "tomorrow"), (2, "day_after")]:
+                day_slots = [
+                    s for s in future_slots
+                    if _slot_date_offset(s) == day_offset
+                    and _slot_in_window(s, exp_start_min, exp_end_min)
+                ]
+                if day_slots:
+                    if prefix == "tomorrow":
+                        soc_at_tomorrow_export_start = day_slots[0].get("projected_soc")
+                        soc_at_tomorrow_export_end = day_slots[-1].get("projected_soc")
+                    else:
+                        soc_at_day_after_export_start = day_slots[0].get("projected_soc")
+                        soc_at_day_after_export_end = day_slots[-1].get("projected_soc")
 
         return {
             "export_recommendation": export_recommendation,
@@ -672,6 +691,10 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             "soc_gain_in_charge_window": soc_gain_in_charge_window,
             "soc_at_tomorrow_charge_end": soc_at_tomorrow_charge_end,
             "soc_at_day_after_charge_end": soc_at_day_after_charge_end,
+            "soc_at_tomorrow_export_start": soc_at_tomorrow_export_start,
+            "soc_at_tomorrow_export_end": soc_at_tomorrow_export_end,
+            "soc_at_day_after_export_start": soc_at_day_after_export_start,
+            "soc_at_day_after_export_end": soc_at_day_after_export_end,
             "daily_solar_kwh": daily_solar,
             "days_low_solar_ahead": days_low_solar,
             "reasoning": reasoning,

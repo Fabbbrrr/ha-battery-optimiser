@@ -62,9 +62,14 @@ async def async_setup_entry(
         ExportRecommendedPowerSensor(coordinator, entry),
         SOCGainInChargeWindowSensor(coordinator, entry),
         DaysLowSolarAheadSensor(coordinator, entry),
-        # Multi-day SOC projections
+        # Multi-day SOC projections — charge window
         SOCAtTomorrowChargeEndSensor(coordinator, entry),
         SOCAtDayAfterChargeEndSensor(coordinator, entry),
+        # Multi-day SOC projections — export window
+        SOCAtTomorrowExportStartSensor(coordinator, entry),
+        SOCAtTomorrowExportEndSensor(coordinator, entry),
+        SOCAtDayAfterExportStartSensor(coordinator, entry),
+        SOCAtDayAfterExportEndSensor(coordinator, entry),
     ])
 
 
@@ -687,4 +692,118 @@ class SOCAtDayAfterChargeEndSensor(CoordinatorEntity[BatteryOptimizerCoordinator
             "charge_window_start": sa.get("charge_window_start"),
             "charge_window_end": sa.get("charge_window_end"),
             "daily_solar_kwh_day_after": (sa.get("daily_solar_kwh") or [None, None, None])[2],
+        }
+
+
+class SOCAtTomorrowExportStartSensor(CoordinatorEntity[BatteryOptimizerCoordinator], SensorEntity):
+    """Projected SOC at the start of tomorrow's export bonus window."""
+
+    _attr_has_entity_name = True
+    _attr_name = "SOC at Tomorrow Export Start"
+    _attr_icon = "mdi:battery-arrow-down"
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator: BatteryOptimizerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_soc_tomorrow_export_start"
+        self._attr_device_info = _device_info(entry)
+
+    @property
+    def native_value(self) -> float | None:
+        return _schedule_analysis(self.coordinator).get("soc_at_tomorrow_export_start")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        sa = _schedule_analysis(self.coordinator)
+        return {
+            "export_window_start": sa.get("export_window_start"),
+            "export_window_end": sa.get("export_window_end"),
+        }
+
+
+class SOCAtTomorrowExportEndSensor(CoordinatorEntity[BatteryOptimizerCoordinator], SensorEntity):
+    """Projected SOC at the end of tomorrow's export bonus window (based on LP recommendation)."""
+
+    _attr_has_entity_name = True
+    _attr_name = "SOC at Tomorrow Export End"
+    _attr_icon = "mdi:battery-arrow-down-outline"
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator: BatteryOptimizerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_soc_tomorrow_export_end"
+        self._attr_device_info = _device_info(entry)
+
+    @property
+    def native_value(self) -> float | None:
+        return _schedule_analysis(self.coordinator).get("soc_at_tomorrow_export_end")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        sa = _schedule_analysis(self.coordinator)
+        return {
+            "export_window_start": sa.get("export_window_start"),
+            "export_window_end": sa.get("export_window_end"),
+            "export_recommendation": sa.get("export_recommendation"),
+        }
+
+
+class SOCAtDayAfterExportStartSensor(CoordinatorEntity[BatteryOptimizerCoordinator], SensorEntity):
+    """Projected SOC at the start of the day-after-tomorrow's export bonus window."""
+
+    _attr_has_entity_name = True
+    _attr_name = "SOC at Day-After Export Start"
+    _attr_icon = "mdi:battery-arrow-down"
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator: BatteryOptimizerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_soc_day_after_export_start"
+        self._attr_device_info = _device_info(entry)
+
+    @property
+    def native_value(self) -> float | None:
+        return _schedule_analysis(self.coordinator).get("soc_at_day_after_export_start")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        sa = _schedule_analysis(self.coordinator)
+        return {
+            "export_window_start": sa.get("export_window_start"),
+            "export_window_end": sa.get("export_window_end"),
+        }
+
+
+class SOCAtDayAfterExportEndSensor(CoordinatorEntity[BatteryOptimizerCoordinator], SensorEntity):
+    """Projected SOC at the end of the day-after-tomorrow's export bonus window."""
+
+    _attr_has_entity_name = True
+    _attr_name = "SOC at Day-After Export End"
+    _attr_icon = "mdi:battery-arrow-down-outline"
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator: BatteryOptimizerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_soc_day_after_export_end"
+        self._attr_device_info = _device_info(entry)
+
+    @property
+    def native_value(self) -> float | None:
+        return _schedule_analysis(self.coordinator).get("soc_at_day_after_export_end")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        sa = _schedule_analysis(self.coordinator)
+        return {
+            "export_window_start": sa.get("export_window_start"),
+            "export_window_end": sa.get("export_window_end"),
+            "export_recommendation": sa.get("export_recommendation"),
         }
