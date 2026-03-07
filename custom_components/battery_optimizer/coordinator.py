@@ -569,6 +569,31 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
                 return sm >= win_start_min or sm < win_end_min
             return win_start_min <= sm < win_end_min
 
+        def _slot_date_offset(slot: dict) -> int | None:
+            """Return how many calendar days after today this slot falls on (0=today, 1=tomorrow…)."""
+            s = slot.get("start", "")
+            if len(s) < 10:
+                return None
+            try:
+                from datetime import date
+                slot_date = date.fromisoformat(s[:10])
+                today = dt_util.now().date()
+                return (slot_date - today).days
+            except (ValueError, TypeError):
+                return None
+
+        def _first_occurrence(all_slots: list[dict]) -> list[dict]:
+            """From a list of window-matched slots spanning multiple days, return only
+            the earliest day's slots (the next upcoming window occurrence)."""
+            if not all_slots:
+                return []
+            offsets = [_slot_date_offset(s) for s in all_slots]
+            valid_offsets = [o for o in offsets if o is not None]
+            if not valid_offsets:
+                return all_slots
+            first = min(valid_offsets)
+            return [s for s, o in zip(all_slots, offsets) if o == first]
+
         future_slots = [s for s in slots if not s.get("is_historical")]
 
         # --- Export window analysis ---
@@ -576,7 +601,9 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         exp_end_min = _hhmm_to_minutes(merged.get(CONF_EXPORT_BONUS_END))
         export_slots = []
         if exp_start_min is not None and exp_end_min is not None:
-            export_slots = [s for s in future_slots if _slot_in_window(s, exp_start_min, exp_end_min)]
+            export_slots = _first_occurrence(
+                [s for s in future_slots if _slot_in_window(s, exp_start_min, exp_end_min)]
+            )
 
         exporting = [s for s in export_slots if s.get("action") == "export"]
         avg_export_power = (
@@ -627,9 +654,12 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         # --- Charge window analysis ---
         charge_start_min = _hhmm_to_minutes(merged.get(CONF_FREE_IMPORT_START))
         charge_end_min = _hhmm_to_minutes(merged.get(CONF_FREE_IMPORT_END))
+        # Charge window: only the NEXT single occurrence (first date's slots).
         charge_slots = []
         if charge_start_min is not None and charge_end_min is not None:
-            charge_slots = [s for s in future_slots if _slot_in_window(s, charge_start_min, charge_end_min)]
+            charge_slots = _first_occurrence(
+                [s for s in future_slots if _slot_in_window(s, charge_start_min, charge_end_min)]
+            )
 
         soc_at_charge_start = charge_slots[0].get("projected_soc") if charge_slots else None
         soc_at_charge_end = charge_slots[-1].get("projected_soc") if charge_slots else None
@@ -640,19 +670,6 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         )
 
         # --- Tomorrow and day-after SOC projections (charge and export windows) ---
-        def _slot_date_offset(slot: dict) -> int | None:
-            """Return how many calendar days after today this slot falls on (0=today, 1=tomorrow…)."""
-            s = slot.get("start", "")
-            if len(s) < 10:
-                return None
-            try:
-                from datetime import date
-                slot_date = date.fromisoformat(s[:10])
-                today = dt_util.now().date()
-                return (slot_date - today).days
-            except (ValueError, TypeError):
-                return None
-
         soc_at_tomorrow_charge_end = None
         soc_at_day_after_charge_end = None
         if charge_start_min is not None and charge_end_min is not None:
