@@ -62,6 +62,9 @@ async def async_setup_entry(
         ExportRecommendedPowerSensor(coordinator, entry),
         SOCGainInChargeWindowSensor(coordinator, entry),
         DaysLowSolarAheadSensor(coordinator, entry),
+        # Multi-day SOC projections
+        SOCAtTomorrowChargeEndSensor(coordinator, entry),
+        SOCAtDayAfterChargeEndSensor(coordinator, entry),
     ])
 
 
@@ -614,4 +617,74 @@ class DaysLowSolarAheadSensor(CoordinatorEntity[BatteryOptimizerCoordinator], Se
         return {
             "daily_solar_kwh": sa.get("daily_solar_kwh", []),
             "low_solar_threshold_kwh": 2.0,
+        }
+
+
+class SOCAtTomorrowChargeEndSensor(CoordinatorEntity[BatteryOptimizerCoordinator], SensorEntity):
+    """Projected battery SOC at the end of tomorrow's free charge window.
+
+    Based on the LP schedule projection — accounts for solar forecast, expected
+    house load, current SOC, and what was charged/exported today. Requires a
+    48-hour lookahead and the free charge window to be configured.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "SOC at Tomorrow Charge End"
+    _attr_icon = "mdi:battery-clock"
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator: BatteryOptimizerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_soc_tomorrow_charge_end"
+        self._attr_device_info = _device_info(entry)
+
+    @property
+    def native_value(self) -> float | None:
+        sa = _schedule_analysis(self.coordinator)
+        return sa.get("soc_at_tomorrow_charge_end")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        sa = _schedule_analysis(self.coordinator)
+        return {
+            "charge_window_start": sa.get("charge_window_start"),
+            "charge_window_end": sa.get("charge_window_end"),
+            "daily_solar_kwh_tomorrow": (sa.get("daily_solar_kwh") or [None, None])[1],
+        }
+
+
+class SOCAtDayAfterChargeEndSensor(CoordinatorEntity[BatteryOptimizerCoordinator], SensorEntity):
+    """Projected battery SOC at the end of the day-after-tomorrow's free charge window.
+
+    Extends the LP projection — accounts for solar, house load, temperature
+    adjustment, and all charging/export decisions in between. Requires a 72-hour
+    lookahead and the free charge window to be configured.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "SOC at Day-After Charge End"
+    _attr_icon = "mdi:battery-clock-outline"
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator: BatteryOptimizerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_soc_day_after_charge_end"
+        self._attr_device_info = _device_info(entry)
+
+    @property
+    def native_value(self) -> float | None:
+        sa = _schedule_analysis(self.coordinator)
+        return sa.get("soc_at_day_after_charge_end")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        sa = _schedule_analysis(self.coordinator)
+        return {
+            "charge_window_start": sa.get("charge_window_start"),
+            "charge_window_end": sa.get("charge_window_end"),
+            "daily_solar_kwh_day_after": (sa.get("daily_solar_kwh") or [None, None, None])[2],
         }

@@ -168,7 +168,6 @@ class ConsumptionLearner:
             from homeassistant.components.recorder import get_instance
             from homeassistant.components.recorder.statistics import (
                 statistics_during_period,
-                StatisticsShortTerm,
             )
         except ImportError:
             _LOGGER.warning("Recorder integration not available — using baseline only")

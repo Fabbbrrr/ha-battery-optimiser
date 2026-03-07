@@ -155,12 +155,15 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         if tracker_stored:
             self._tracker.load_from_storage(tracker_stored)
 
-        # Kick off initial recorder training in background
+        # Kick off initial recorder training in background, then persist the result
         consumption_entity = cfg.get(CONF_CONSUMPTION_ENTITY)
         if consumption_entity:
-            self.hass.async_create_task(
-                self._learner.async_train_from_recorder(self.hass, consumption_entity)
-            )
+            async def _train_and_persist() -> None:
+                await self._learner.async_train_from_recorder(self.hass, consumption_entity)
+                if self._learner_storage:
+                    await self._learner_storage.async_save(self._learner.to_storage())
+                    _LOGGER.debug("Consumption learner trained and persisted at startup")
+            self.hass.async_create_task(_train_and_persist())
 
         self._setup_forecast_listener()
         self._setup_soc_listener()
@@ -493,6 +496,10 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
 
         schedule_analysis = self._analyze_schedule(slots_out, solar_kwh, merged, slot_minutes)
 
+        # Persist learner state so profiles survive restarts
+        if self._learner_storage and self._learner.get_learning_status().get("is_trained"):
+            await self._learner_storage.async_save(self._learner.to_storage())
+
         return {
             "state": STATE_RUNNING,
             "slots": slots_out,
@@ -622,6 +629,36 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             else None
         )
 
+        # --- Tomorrow and day-after charge window SOC projections ---
+        def _slot_date_offset(slot: dict) -> int | None:
+            """Return how many calendar days after today this slot falls on (0=today, 1=tomorrow…)."""
+            s = slot.get("start", "")
+            if len(s) < 10:
+                return None
+            try:
+                from datetime import date
+                slot_date = date.fromisoformat(s[:10])
+                today = dt_util.now().date()
+                return (slot_date - today).days
+            except (ValueError, TypeError):
+                return None
+
+        soc_at_tomorrow_charge_end = None
+        soc_at_day_after_charge_end = None
+        if charge_start_min is not None and charge_end_min is not None:
+            for day_offset, attr_name in [(1, "tomorrow"), (2, "day_after")]:
+                day_charge_slots = [
+                    s for s in future_slots
+                    if _slot_date_offset(s) == day_offset
+                    and _slot_in_window(s, charge_start_min, charge_end_min)
+                ]
+                if day_charge_slots:
+                    soc_val = day_charge_slots[-1].get("projected_soc")
+                    if attr_name == "tomorrow":
+                        soc_at_tomorrow_charge_end = soc_val
+                    else:
+                        soc_at_day_after_charge_end = soc_val
+
         return {
             "export_recommendation": export_recommendation,
             "export_recommended_power_kw": round(avg_export_power, 2),
@@ -633,6 +670,8 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             "soc_at_charge_start": soc_at_charge_start,
             "soc_at_charge_end": soc_at_charge_end,
             "soc_gain_in_charge_window": soc_gain_in_charge_window,
+            "soc_at_tomorrow_charge_end": soc_at_tomorrow_charge_end,
+            "soc_at_day_after_charge_end": soc_at_day_after_charge_end,
             "daily_solar_kwh": daily_solar,
             "days_low_solar_ahead": days_low_solar,
             "reasoning": reasoning,
