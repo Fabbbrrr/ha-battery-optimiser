@@ -44,20 +44,30 @@ def parse_forecast(
     if fmt == FORECAST_FORMAT_AUTO:
         fmt = _detect_format(state)
 
+    _LOGGER.debug("Parsing forecast from %s using format '%s'", entity_id, fmt)
+
     try:
         if fmt == FORECAST_FORMAT_FORECAST_SOLAR:
             raw_slots = _parse_forecast_solar(state)
+            result = _resample_to_slots(raw_slots, start_dt, slot_minutes, n_slots)
+            n_nonzero = sum(1 for v in result if v > 0)
+            if n_nonzero == 0:
+                # watts/wh_period data is empty or all in the past (common in evenings).
+                # Fall back to generic: read state value + energy_production_tomorrow attr.
+                _LOGGER.debug(
+                    "Forecast.Solar watts/wh_period had no future slots — "
+                    "falling back to daily-total distribution for %s", entity_id
+                )
+                result = _parse_generic_kwh(hass, state, start_dt, n_slots, slot_minutes)
+            return result
         elif fmt == FORECAST_FORMAT_SOLCAST:
             raw_slots = _parse_solcast(state)
+            return _resample_to_slots(raw_slots, start_dt, slot_minutes, n_slots)
         else:
-            raw_slots = _parse_generic_kwh(hass, state, start_dt, n_slots, slot_minutes)
-            # Generic already returns per-slot values
-            return raw_slots
+            return _parse_generic_kwh(hass, state, start_dt, n_slots, slot_minutes)
     except Exception as err:
         _LOGGER.error("Failed to parse %s forecast from %s: %s", fmt, entity_id, err)
         return [0.0] * n_slots
-
-    return _resample_to_slots(raw_slots, start_dt, slot_minutes, n_slots)
 
 
 def _detect_format(state) -> str:
@@ -190,11 +200,22 @@ def _parse_generic_kwh(
             except (TypeError, ValueError):
                 pass
 
-    if tomorrow_kwh is not None:
+    if tomorrow_kwh is not None and tomorrow_kwh > 0:
         tomorrow = start_dt.date() + timedelta(days=1)
         sunrise_t, sunset_t = _get_daylight_window(hass, tomorrow)
         _distribute_kwh_to_slots(result, tomorrow_kwh, sunrise_t, sunset_t, start_dt, slot_minutes, 0)
+        _LOGGER.debug("Generic forecast: tomorrow %.2f kWh added from '%s' attribute", tomorrow_kwh,
+                      next((k for k in ("energy_production_tomorrow", "kwh_tomorrow", "tomorrow_kwh", "forecast_tomorrow")
+                            if state.attributes.get(k) is not None), "unknown"))
 
+    n_nonzero = sum(1 for v in result if v > 0)
+    _LOGGER.debug(
+        "Generic forecast for %s: today=%.2f kWh, tomorrow=%s kWh → %d non-zero slots",
+        state.entity_id,
+        total_kwh_today,
+        f"{tomorrow_kwh:.2f}" if tomorrow_kwh else "none",
+        n_nonzero,
+    )
     return result
 
 
