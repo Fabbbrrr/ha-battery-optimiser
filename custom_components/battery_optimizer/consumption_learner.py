@@ -197,9 +197,10 @@ class ConsumptionLearner:
         if not entity_stats:
             _LOGGER.warning(
                 "No recorder statistics found for consumption entity '%s'. "
-                "This entity must be a long-term statistics energy sensor (monotonically "
-                "increasing kWh total — e.g. from HA Energy dashboard or a utility meter). "
-                "A 'today total' sensor that resets at midnight will NOT work. "
+                "This entity must have state_class: total or total_increasing so that "
+                "HA recorder tracks long-term statistics for it. "
+                "Daily-resetting 'today total' sensors (like household_load_today_energy) work fine "
+                "because HA compensates for resets in the statistics sum. "
                 "Check: Developer Tools → Statistics and search for '%s'.",
                 consumption_entity,
                 consumption_entity,
