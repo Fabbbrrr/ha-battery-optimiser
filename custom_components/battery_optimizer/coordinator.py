@@ -258,6 +258,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         # --- Parse solar forecast ---
         forecast_entity = merged.get(CONF_SOLAR_FORECAST_ENTITY)
         forecast_format = merged.get(CONF_SOLAR_FORECAST_FORMAT, FORECAST_FORMAT_AUTO)
+        _diag_solar_nonzero = 0
         if not forecast_entity:
             _LOGGER.warning(
                 "Solar forecast entity not configured — using zero solar for all slots. "
@@ -274,6 +275,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
 
         if forecast_entity:
             n_nonzero = sum(1 for v in solar_kwh if v > 0)
+            _diag_solar_nonzero = n_nonzero
             if n_nonzero == 0:
                 _LOGGER.warning(
                     "No slots parsed from forecast entity %s — "
@@ -445,6 +447,48 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
                 result.estimated_export_revenue,
             )
 
+        def _entity_diag(entity_id: str | None) -> dict:
+            if not entity_id:
+                return {"id": None, "state": "not_configured", "ok": False}
+            st = self.hass.states.get(entity_id)
+            if st is None:
+                return {"id": entity_id, "state": "not_found_in_ha", "ok": False}
+            is_ok = st.state not in ("unavailable", "unknown", "none")
+            return {"id": entity_id, "state": st.state, "ok": is_ok}
+
+        consumption_entity = merged.get(CONF_CONSUMPTION_ENTITY)
+        load_avg_kw = round(
+            (sum(load_kwh) / len(load_kwh)) / (slot_minutes / 60.0), 3
+        ) if load_kwh else 0.0
+
+        diagnostics = {
+            "entities": {
+                "soc": _entity_diag(soc_entity),
+                "solar_forecast": _entity_diag(forecast_entity),
+                "consumption": _entity_diag(consumption_entity),
+                "weather": _entity_diag(weather_entity if weather_entity else None),
+            },
+            "inputs": {
+                "initial_soc_pct": round(initial_soc_pct, 2),
+                "n_slots": n_slots,
+                "slot_minutes": slot_minutes,
+                "lookahead_hours": lookahead_hours,
+                "solar_total_kwh": round(sum(solar_kwh), 3),
+                "solar_nonzero_slots": _diag_solar_nonzero,
+                "load_avg_kw": load_avg_kw,
+                "capacity_kwh": capacity_kwh,
+                "min_soc_pct": min_soc_pct,
+                "forecast_format": forecast_format,
+                "aggressiveness": self._aggressiveness,
+            },
+            "config": {
+                "free_import_start": merged.get(CONF_FREE_IMPORT_START),
+                "free_import_end": merged.get(CONF_FREE_IMPORT_END),
+                "bridge_fallback_time": merged.get(CONF_BRIDGE_TO_FALLBACK_TIME, DEFAULT_BRIDGE_TO_FALLBACK_TIME),
+                "fallback_mode": merged.get(CONF_FALLBACK_MODE, DEFAULT_FALLBACK_MODE),
+            },
+        }
+
         return {
             "state": STATE_RUNNING,
             "slots": slots_out,
@@ -462,6 +506,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
                 "forecast_confidence": forecast_confidence,
                 "bridge_to_time": bridge.dt.isoformat(),
                 "bridge_to_source": bridge.source,
+                "diagnostics": diagnostics,
             },
             "aggressiveness": self._aggressiveness,
         }

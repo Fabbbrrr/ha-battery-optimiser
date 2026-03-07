@@ -239,6 +239,41 @@ const STYLES = `
   button:active { opacity: 0.6; }
   .btn-primary   { background: var(--primary-color); color: white; }
   .btn-secondary { background: var(--secondary-background-color); color: var(--primary-text-color); border: 1px solid var(--divider-color); }
+  .debug-entity {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--divider-color);
+    font-size: 13px;
+  }
+  .debug-entity:last-child { border-bottom: none; }
+  .debug-entity-id {
+    font-family: monospace;
+    font-size: 12px;
+    color: var(--secondary-text-color);
+    flex: 1;
+    word-break: break-all;
+  }
+  .debug-entity-state {
+    font-family: monospace;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+  }
+  .state-ok    { background: #e8f5e9; color: #2e7d32; }
+  .state-warn  { background: #fff3e0; color: #bf360c; }
+  .state-error { background: #ffebee; color: #b71c1c; }
+  .debug-label { font-size: 11px; color: var(--secondary-text-color); min-width: 80px; }
+  code {
+    font-family: monospace;
+    font-size: 11px;
+    background: var(--secondary-background-color);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
   .aggressiveness-row {
     display: flex;
     align-items: center;
@@ -338,6 +373,7 @@ class BatteryOptimizerPanel extends HTMLElement {
         <div class="tab active" data-tab="schedule">Schedule</div>
         <div class="tab" data-tab="analytics">Analytics</div>
         <div class="tab" data-tab="config">Config</div>
+        <div class="tab" data-tab="debug">Debug</div>
       </div>
       <div class="content" id="content"></div>
     `;
@@ -375,9 +411,10 @@ class BatteryOptimizerPanel extends HTMLElement {
   _updateContent() {
     const content = this.shadowRoot.getElementById('content');
     if (!content) return;
-    if (this._activeTab === 'schedule')   content.innerHTML = this._renderSchedule();
+    if (this._activeTab === 'schedule')       content.innerHTML = this._renderSchedule();
     else if (this._activeTab === 'analytics') content.innerHTML = this._renderAnalytics();
-    else content.innerHTML = this._renderConfig();
+    else if (this._activeTab === 'config')    content.innerHTML = this._renderConfig();
+    else                                      content.innerHTML = this._renderDebug();
     this._bindContentEvents();
   }
 
@@ -653,6 +690,138 @@ class BatteryOptimizerPanel extends HTMLElement {
         <div class="btn-row">
           <button class="btn-primary" id="btn-open-config">Open Integration Settings</button>
         </div>
+      </div>
+    `;
+  }
+
+  // ── Debug tab ─────────────────────────────────────────────────────────────
+
+  _renderDebug() {
+    const health = this._st(ENTITIES.health)?.attributes || {};
+    const diag = health.diagnostics || {};
+    const entities = diag.entities || {};
+    const inputs = diag.inputs || {};
+    const cfg = diag.config || {};
+
+    // Entity health check section
+    const entityRows = Object.entries({
+      'SOC sensor': entities.soc,
+      'Solar forecast': entities.solar_forecast,
+      'Consumption': entities.consumption,
+      'Weather': entities.weather,
+    }).map(([label, e]) => {
+      if (!e) return `<div class="debug-entity"><span class="debug-label">${label}</span><span class="debug-entity-id">no data — reload integration</span></div>`;
+      const notConfigured = !e.id;
+      const stateClass = e.ok ? 'state-ok' : notConfigured ? 'state-warn' : 'state-error';
+      const stateText = e.state;
+      const idText = e.id || 'not configured';
+      return `
+        <div class="debug-entity">
+          <span class="dot ${e.ok ? 'dot-ok' : notConfigured ? 'dot-warn' : 'dot-error'}"></span>
+          <span class="debug-label">${label}</span>
+          <span class="debug-entity-id">${idText}</span>
+          <span class="debug-entity-state ${stateClass}">${stateText}</span>
+        </div>`;
+    }).join('');
+
+    // Live HA entity lookup for all configured entity IDs
+    const liveRows = Object.entries({
+      'SOC sensor': entities.soc?.id,
+      'Solar forecast': entities.solar_forecast?.id,
+      'Consumption': entities.consumption?.id,
+      'Weather': entities.weather?.id,
+    }).filter(([, id]) => id).map(([label, entityId]) => {
+      const live = this._st(entityId);
+      const liveState = live ? live.state : 'not found in hass.states';
+      const liveOk = live && !['unavailable','unknown','none'].includes(live.state);
+      const attrs = live ? Object.entries(live.attributes).slice(0, 5)
+        .map(([k, v]) => `${k}: ${typeof v === 'object' ? '(object)' : v}`).join(', ') : '';
+      return `
+        <div class="debug-entity">
+          <span class="dot ${liveOk ? 'dot-ok' : 'dot-error'}"></span>
+          <span class="debug-label">${label}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;color:var(--primary-text-color);font-weight:600">${liveState}</div>
+            ${attrs ? `<div style="font-size:10px;color:var(--secondary-text-color);word-break:break-all">${attrs}</div>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    // Inputs section
+    const inputRows = Object.entries({
+      'Initial SOC':        inputs.initial_soc_pct != null ? `${inputs.initial_soc_pct}%` : '—',
+      'Slots':              inputs.n_slots != null ? `${inputs.n_slots} × ${inputs.slot_minutes} min` : '—',
+      'Lookahead':          inputs.lookahead_hours != null ? `${inputs.lookahead_hours} h` : '—',
+      'Solar total':        inputs.solar_total_kwh != null ? `${inputs.solar_total_kwh} kWh (${inputs.solar_nonzero_slots} non-zero slots)` : '—',
+      'Load avg':           inputs.load_avg_kw != null ? `${inputs.load_avg_kw} kW` : '—',
+      'Capacity':           inputs.capacity_kwh != null ? `${inputs.capacity_kwh} kWh` : '—',
+      'Min SOC floor':      inputs.min_soc_pct != null ? `${inputs.min_soc_pct}%` : '—',
+      'Forecast format':    inputs.forecast_format || '—',
+      'Aggressiveness':     inputs.aggressiveness != null ? `${Math.round(inputs.aggressiveness * 100)}%` : '—',
+    }).map(([k, v]) => `
+      <div class="stat-row">
+        <span class="stat-label">${k}</span>
+        <span class="stat-value"><code>${v}</code></span>
+      </div>`).join('');
+
+    // Config section
+    const cfgRows = Object.entries({
+      'Free import start':  cfg.free_import_start || 'not set',
+      'Free import end':    cfg.free_import_end || 'not set',
+      'Bridge fallback':    cfg.bridge_fallback_time || '—',
+      'Fallback mode':      cfg.fallback_mode || '—',
+    }).map(([k, v]) => `
+      <div class="stat-row">
+        <span class="stat-label">${k}</span>
+        <span class="stat-value"><code>${v}</code></span>
+      </div>`).join('');
+
+    // All battery_optimizer sensors
+    const allEntities = Object.entries(this._hass?.states || {})
+      .filter(([id]) => id.startsWith('sensor.battery_optimizer') || id.startsWith('button.battery_optimizer'))
+      .map(([id, st]) => {
+        const ok = !['unavailable','unknown','none'].includes(st.state);
+        return `
+          <div class="debug-entity">
+            <span class="dot ${ok ? 'dot-ok' : 'dot-error'}"></span>
+            <span class="debug-entity-id">${id}</span>
+            <span class="debug-entity-state ${ok ? 'state-ok' : 'state-error'}">${st.state}</span>
+          </div>`;
+      }).join('') || '<p class="no-data">No battery_optimizer entities found in hass.states.</p>';
+
+    const noData = !diag.entities;
+
+    return `
+      ${noData ? `<div class="alert alert-warn">⚠ No diagnostic data yet — the optimizer has not completed a run. Check the Analytics tab for solver status.</div>` : ''}
+
+      <div class="card">
+        <p class="card-title">Configured entity health</p>
+        <p style="font-size:12px;color:var(--secondary-text-color);margin:0 0 8px">
+          Each entity is checked at the start of every optimization run.
+          <strong>not_found_in_ha</strong> means the entity ID is wrong or the device is offline.
+          <strong>unavailable</strong> means HA found the entity but the device isn't responding.
+        </p>
+        ${entityRows || '<p class="no-data">No entity data — run an optimization first.</p>'}
+      </div>
+
+      <div class="card">
+        <p class="card-title">Live entity states (from hass.states)</p>
+        ${liveRows || '<p class="no-data">No configured entity IDs found.</p>'}
+      </div>
+
+      <div class="card">
+        <p class="card-title">Last optimization inputs</p>
+        ${inputRows || '<p class="no-data">No input data — optimization has not run yet.</p>'}
+      </div>
+
+      <div class="card">
+        <p class="card-title">Tariff configuration</p>
+        ${cfgRows}
+      </div>
+
+      <div class="card">
+        <p class="card-title">All battery_optimizer entities</p>
+        ${allEntities}
       </div>
     `;
   }

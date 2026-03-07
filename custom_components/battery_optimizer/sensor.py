@@ -66,7 +66,7 @@ def _device_info(entry: ConfigEntry) -> DeviceInfo:
         name="Battery Optimiser",
         manufacturer="Battery Optimiser",
         model="LP Schedule Optimiser",
-        sw_version="0.0.9",
+        sw_version="0.0.10",
     )
 
 
@@ -163,6 +163,7 @@ class BatteryHealthSensor(CoordinatorEntity[BatteryOptimizerCoordinator], Sensor
             ATTR_FORECAST_CONFIDENCE: health.get(ATTR_FORECAST_CONFIDENCE),
             ATTR_BRIDGE_TO_TIME: health.get(ATTR_BRIDGE_TO_TIME),
             ATTR_BRIDGE_TO_SOURCE: health.get(ATTR_BRIDGE_TO_SOURCE),
+            "diagnostics": health.get("diagnostics", {}),
         }
 
 
