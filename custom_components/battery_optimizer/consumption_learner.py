@@ -195,7 +195,15 @@ class ConsumptionLearner:
 
         entity_stats = stats.get(consumption_entity, [])
         if not entity_stats:
-            _LOGGER.info("No recorder stats for %s — using baseline", consumption_entity)
+            _LOGGER.warning(
+                "No recorder statistics found for consumption entity '%s'. "
+                "This entity must be a long-term statistics energy sensor (monotonically "
+                "increasing kWh total — e.g. from HA Energy dashboard or a utility meter). "
+                "A 'today total' sensor that resets at midnight will NOT work. "
+                "Check: Developer Tools → Statistics and search for '%s'.",
+                consumption_entity,
+                consumption_entity,
+            )
             return
 
         # Convert stats to observations

@@ -71,7 +71,7 @@ def _device_info(entry: ConfigEntry) -> DeviceInfo:
         name="Battery Optimiser",
         manufacturer="Battery Optimiser",
         model="LP Schedule Optimiser",
-        sw_version="0.0.13",
+        sw_version="0.0.14",
     )
 
 

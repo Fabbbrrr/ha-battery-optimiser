@@ -102,9 +102,10 @@ N_VARS_PER_SLOT = 6
 @dataclass
 class TariffSchedule:
     """Per-slot tariff rates."""
-    export_rate: list[float]   # $/kWh earned for each export slot
-    import_rate: list[float]   # $/kWh paid for each import slot
-    grid_charge_allowed: list[bool]  # Whether grid charging is allowed in each slot
+    export_rate: list[float]        # $/kWh earned for each export slot
+    import_rate: list[float]        # $/kWh paid for each import slot
+    grid_charge_allowed: list[bool] # Whether grid charging is allowed in each slot
+    export_allowed: list[bool]      # Whether battery-to-grid export is allowed (bonus window only)
 
 
 @dataclass
@@ -434,6 +435,7 @@ def build_tariff_schedule(
     export_rate = []
     import_rate = []
     grid_charge_allowed = []
+    export_allowed = []
 
     standard_export = config.get(CONF_STANDARD_EXPORT_RATE, DEFAULT_STANDARD_EXPORT_RATE)
     standard_import = config.get(CONF_STANDARD_IMPORT_RATE, DEFAULT_STANDARD_IMPORT_RATE)
@@ -458,11 +460,15 @@ def build_tariff_schedule(
         slot_dt = start_dt + timedelta(minutes=slot_minutes * i)
         slot_min = slot_dt.hour * 60 + slot_dt.minute
 
-        # Export rate
+        # Export rate — and whether battery-to-grid export is allowed this slot.
+        # Export is ONLY allowed during the configured bonus window. Outside the
+        # bonus window the battery should discharge to cover home load, not export.
         if bonus_start_min <= slot_min < bonus_end_min:
             slot_export_rate = bonus_rate
+            slot_export_allowed = True
         else:
             slot_export_rate = standard_export
+            slot_export_allowed = False
 
         # Import rate
         if free_start_min is not None and free_end_min is not None:
@@ -486,11 +492,13 @@ def build_tariff_schedule(
         export_rate.append(slot_export_rate)
         import_rate.append(slot_import_rate)
         grid_charge_allowed.append(slot_grid_charge)
+        export_allowed.append(slot_export_allowed)
 
     return TariffSchedule(
         export_rate=export_rate,
         import_rate=import_rate,
         grid_charge_allowed=grid_charge_allowed,
+        export_allowed=export_allowed,
     )
 
 
@@ -527,8 +535,9 @@ def _solve_lp(opt_input: OptimizationInput) -> OptimizationResult:
     bounds = []
 
     for t in range(T):
-        # export[t]
-        bounds.append((0.0, opt_input.max_export_kwh))
+        # export[t] — only allowed during the export bonus window
+        max_exp = opt_input.max_export_kwh if opt_input.tariff.export_allowed[t] else 0.0
+        bounds.append((0.0, max_exp))
     for t in range(T):
         # home_discharge[t]
         bounds.append((0.0, opt_input.max_discharge_kwh))
