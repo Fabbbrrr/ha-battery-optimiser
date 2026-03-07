@@ -231,6 +231,19 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         else:
             initial_soc_pct = 50.0
 
+        if soc_available:
+            _LOGGER.info(
+                "Optimization starting — SOC: %.1f%% (%s ✓)",
+                initial_soc_pct,
+                soc_entity,
+            )
+        else:
+            _LOGGER.warning(
+                "SOC sensor unavailable — using 50%% fallback (entity: %s, state: %s)",
+                soc_entity or "not configured",
+                soc_state.state if soc_state else "not found",
+            )
+
         # --- Read dynamic export limit ---
         max_export_entity = merged.get("max_export_limit_entity")
         if max_export_entity:
@@ -245,6 +258,11 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         # --- Parse solar forecast ---
         forecast_entity = merged.get(CONF_SOLAR_FORECAST_ENTITY)
         forecast_format = merged.get(CONF_SOLAR_FORECAST_FORMAT, FORECAST_FORMAT_AUTO)
+        if not forecast_entity:
+            _LOGGER.warning(
+                "Solar forecast entity not configured — using zero solar for all slots. "
+                "Add a forecast entity under Settings → Configure."
+            )
         solar_kwh = parse_forecast(
             self.hass,
             forecast_entity,
@@ -254,8 +272,48 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             now,
         ) if forecast_entity else [0.0] * n_slots
 
+        if forecast_entity:
+            n_nonzero = sum(1 for v in solar_kwh if v > 0)
+            if n_nonzero == 0:
+                _LOGGER.warning(
+                    "No slots parsed from forecast entity %s — "
+                    "check entity attributes in Developer Tools → States",
+                    forecast_entity,
+                )
+            else:
+                _LOGGER.info(
+                    "Solar: %d non-zero slots from %s (%s format, total %.2f kWh)",
+                    n_nonzero,
+                    forecast_entity,
+                    forecast_format,
+                    sum(solar_kwh),
+                )
+
         # --- Load profile from learned consumption ---
         load_kwh = self._learner.get_load_profile(now, n_slots, slot_minutes)
+        learning_status = self._learner.get_learning_status()
+        if learning_status.get("is_trained"):
+            _LOGGER.info(
+                "Consumption: learned profile (%s, %d observations, %.1f days)",
+                learning_status.get("profile_types", "unknown"),
+                learning_status.get("observation_count", 0),
+                learning_status.get("days_covered", 0.0),
+            )
+        else:
+            consumption_entity = merged.get(CONF_CONSUMPTION_ENTITY)
+            if not consumption_entity:
+                _LOGGER.warning(
+                    "Consumption learner not trained — using baseline %.2f kW. "
+                    "Add a consumption entity under Settings → Configure → Step 5.",
+                    learning_status.get("baseline_kw", 0.3),
+                )
+            else:
+                _LOGGER.warning(
+                    "Consumption learner not trained — using baseline %.2f kW "
+                    "(entity: %s). Hit 'Retrain Now' in the Analytics tab if recorder has data.",
+                    learning_status.get("baseline_kw", 0.3),
+                    consumption_entity,
+                )
 
         # --- Weather modifier: confidence + temperature load adjustment ---
         weather_entity = merged.get(CONF_WEATHER_ENTITY)
@@ -271,6 +329,22 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
                     load_kwh = apply_temperature_load_adjustment(
                         load_kwh, weather_points, temp_coeffs, slot_hours
                     )
+                _LOGGER.info(
+                    "Weather: %s ✓ — forecast confidence: %d%%",
+                    weather_entity,
+                    int(forecast_confidence * 100),
+                )
+            else:
+                _LOGGER.warning(
+                    "Weather entity %s returned no forecast points — "
+                    "solar confidence not adjusted",
+                    weather_entity,
+                )
+        else:
+            _LOGGER.debug(
+                "No weather entity configured — forecast confidence at 100%%. "
+                "Add one under Settings → Configure for improved accuracy."
+            )
 
         # --- Build tariff schedule ---
         tariff = build_tariff_schedule(merged, now, n_slots, slot_minutes)
@@ -291,6 +365,13 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             merged.get(CONF_FREE_IMPORT_START),
             merged.get(CONF_FREE_IMPORT_END),
             merged.get(CONF_BRIDGE_TO_FALLBACK_TIME, DEFAULT_BRIDGE_TO_FALLBACK_TIME),
+        )
+
+        _LOGGER.info(
+            "Bridge-to: %s (%s) — energy needed: %.2f kWh",
+            bridge.dt.strftime("%H:%M"),
+            bridge.source,
+            bridge.energy_needed_kwh,
         )
 
         # --- Build optimizer input and run LP ---
@@ -346,6 +427,23 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
 
         # Save current schedule as last-known-good for fallback
         self._last_schedule = slots_out
+
+        # --- Log optimization summary ---
+        if slots_out:
+            first_slot = slots_out[0]
+            soc_start = initial_soc_pct
+            soc_end = first_slot.get("projected_soc", soc_start)
+            _LOGGER.info(
+                "Schedule: %d slots, solve %dms — action=%s, SOC %.0f%%→%.0f%%, "
+                "security=%.0f%%, revenue=%.4f",
+                len(slots_out),
+                result.solve_time_ms,
+                first_slot.get("action", "unknown"),
+                soc_start,
+                soc_end,
+                result.energy_security_score * 100,
+                result.estimated_export_revenue,
+            )
 
         return {
             "state": STATE_RUNNING,

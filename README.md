@@ -1,4 +1,4 @@
-# Battery Optimizer for Home Assistant
+# Battery Optimiser for Home Assistant
 
 LP-optimized battery charge/discharge/export scheduling. Maximizes export revenue
 during peak tariff windows while guaranteeing your battery has enough energy to last
@@ -7,6 +7,22 @@ and multi-day lookahead.
 
 **Works with any inverter** that exposes sensors in Home Assistant (Solis, Huawei,
 Enphase, SunGrow, Fronius, GoodWe, etc.).
+
+---
+
+## How does it work?
+
+> **Within 1–2 minutes of installation you have a working schedule.** The optimizer runs immediately, using your tariff configuration and a consumption baseline. It then trains on your HA recorder history in the background — once trained, every recalculation uses your real weekday/weekend usage patterns.
+
+The core loop every 30 minutes:
+
+```
+Read SOC + Solar forecast + Weather → Run LP solver → Update schedule sensors
+```
+
+**→ [Full explanation: docs/how-it-works.md](docs/how-it-works.md)**
+
+Covers the startup sequence, the learning timeline (when to expect what), what the schedule action states mean, how to read the logs, and how to troubleshoot common problems.
 
 ---
 
@@ -162,13 +178,34 @@ Battery Optimizer → Configure**.
 
 ## Entities Created
 
+### Core sensors
+
+| Entity | State | Description |
+|--------|-------|-------------|
+| `sensor.battery_optimizer_schedule` | `charge` / `discharge` / `hold` / `export` | Current recommended action. Full 48-slot schedule in attributes. |
+| `sensor.battery_optimizer_health` | `ok` / `degraded` / `error` | Solver metrics, revenue estimate, security score in attributes. |
+| `sensor.battery_optimizer_optimizer_state` | `running` / `paused` / `error` / `fallback` | Overall optimizer state. |
+
+### Scalar sensors (graphable, automation-friendly)
+
+| Entity | Unit | Description |
+|--------|------|-------------|
+| `sensor.battery_optimizer_current_power` | kW | Power command for the current slot (+ = charge, − = discharge) |
+| `sensor.battery_optimizer_projected_soc` | % | Expected battery SOC at end of the current slot |
+| `sensor.battery_optimizer_forecast_confidence` | % | Weather-adjusted confidence in the solar forecast |
+| `sensor.battery_optimizer_energy_security_score` | % | How well the plan covers the energy-security bridge point |
+| `sensor.battery_optimizer_estimated_export_revenue` | — | Estimated revenue from this optimization cycle |
+| `sensor.battery_optimizer_next_action` | text | What the next schedule slot plans to do |
+| `sensor.battery_optimizer_soc_at_free_charge_start` | % | Projected SOC when your cheap/free import window begins |
+| `sensor.battery_optimizer_learning_status` | `trained` / `learning` / `not_started` | Consumption learner status. Attributes include observation count, days covered, profile types. |
+
+### Button entity
+
 | Entity | Description |
 |--------|-------------|
-| `sensor.battery_optimizer_schedule` | Current slot action. Full schedule in attributes — see below |
-| `sensor.battery_optimizer_health` | Overall health (`ok` / `degraded` / `error`). Solver metrics, revenue estimate, security score |
-| `sensor.battery_optimizer_optimizer_state` | `running` / `paused` / `error` / `fallback` |
+| `button.battery_optimizer_retrain_learning_data` | Triggers a full re-train from recorder history |
 
-### Schedule Sensor Attributes
+### Schedule sensor attributes
 
 ```yaml
 slots:
@@ -182,7 +219,7 @@ slots:
     net_energy_kwh: -1.6
     is_override: false
     is_historical: false
-aggressiveness: 0.7
+aggressiveness: 0.5
 state: running
 ```
 
@@ -205,6 +242,7 @@ Historical slots also include:
 | `battery_optimizer.override_slot` | Force a specific action for a duration (`action`, `duration_minutes`, optional `power_kw`, optional `start`) |
 | `battery_optimizer.pause` | Pause optimizer — all slots set to hold, state persists across restart |
 | `battery_optimizer.resume` | Resume from paused state |
+| `battery_optimizer.retrain_learner` | Re-train consumption model from full recorder history, then recalculate |
 
 ---
 
@@ -257,18 +295,22 @@ type: custom:battery-optimizer-card
 entity: sensor.battery_optimizer_schedule
 health_entity: sensor.battery_optimizer_health
 state_entity: sensor.battery_optimizer_optimizer_state
-title: Battery Optimizer
+learning_entity: sensor.battery_optimizer_learning_status
+title: Battery Optimiser
 show_slots: 24    # number of slots to display in timeline
 ```
 
 ### Card features
 
-- **Timeline** — color-coded bars: green=export, blue=charge, orange=discharge, grey=hold
-- **SOC curve** — purple line = projected, pink dashed = actual (historical slots)
-- **Tap any slot** — opens override dialog (action, power, duration)
-- **Aggressiveness slider** — calls `set_aggressiveness` service on change
-- **Recalculate button** — calls `recalculate_now`
-- **Pause / Resume toggle** — calls `pause` or `resume`
+The card has **3 tabs**:
+
+**Schedule** — color-coded timeline, SOC curve (planned vs actual), aggressiveness slider, Recalculate and Pause/Resume controls. Tap any slot to open the override dialog.
+
+**Analytics** — planned vs actual SOC accuracy chart, solver health metrics, consumption learning status (observation count, days covered, profiles, temperature model), and a **Retrain Now** button.
+
+**Config** — key readings (forecast confidence, energy security score, SOC at charge window start), optimizer settings summary, and learning configuration.
+
+An **alerts bar** at the top flags problems immediately: fallback mode active, SOC sensor unavailable, or learning not yet trained.
 
 ---
 
