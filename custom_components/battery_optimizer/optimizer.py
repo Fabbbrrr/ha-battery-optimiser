@@ -425,6 +425,16 @@ def _parse_time_to_minutes(time_str: str) -> int:
         return 0
 
 
+def _in_window(slot_min: int, start_min: int, end_min: int) -> bool:
+    """Return True if slot_min falls in [start_min, end_min).
+
+    Handles overnight windows where start_min > end_min (e.g. 23:00–05:00).
+    """
+    if end_min <= start_min:  # overnight crossing
+        return slot_min >= start_min or slot_min < end_min
+    return start_min <= slot_min < end_min
+
+
 def build_tariff_schedule(
     config: dict,
     start_dt: datetime,
@@ -460,10 +470,8 @@ def build_tariff_schedule(
         slot_dt = start_dt + timedelta(minutes=slot_minutes * i)
         slot_min = slot_dt.hour * 60 + slot_dt.minute
 
-        # Export rate — and whether battery-to-grid export is allowed this slot.
-        # Export is ONLY allowed during the configured bonus window. Outside the
-        # bonus window the battery should discharge to cover home load, not export.
-        if bonus_start_min <= slot_min < bonus_end_min:
+        # Export rate — only allowed during the configured bonus window.
+        if _in_window(slot_min, bonus_start_min, bonus_end_min):
             slot_export_rate = bonus_rate
             slot_export_allowed = True
         else:
@@ -471,23 +479,28 @@ def build_tariff_schedule(
             slot_export_allowed = False
 
         # Import rate
-        if free_start_min is not None and free_end_min is not None:
-            if free_start_min <= slot_min < free_end_min:
-                slot_import_rate = 0.0
-            elif peak_start_min is not None and peak_start_min <= slot_min < peak_end_min:
-                slot_import_rate = peak_rate
-            else:
-                slot_import_rate = standard_import
-        elif peak_start_min is not None and peak_end_min is not None and peak_start_min <= slot_min < peak_end_min:
+        in_free_window = (
+            free_start_min is not None
+            and free_end_min is not None
+            and _in_window(slot_min, free_start_min, free_end_min)
+        )
+        in_peak_window = (
+            peak_start_min is not None
+            and peak_end_min is not None
+            and _in_window(slot_min, peak_start_min, peak_end_min)
+        )
+
+        if in_free_window:
+            slot_import_rate = 0.0
+        elif in_peak_window:
             slot_import_rate = peak_rate
         else:
             slot_import_rate = standard_import
 
-        # Grid charging: only allowed during free/cheap import window
-        slot_grid_charge = False
-        if grid_charging_enabled:
-            if free_start_min is not None and free_end_min is not None:
-                slot_grid_charge = free_start_min <= slot_min < free_end_min
+        # Grid charging: ALWAYS allowed during the free import window (that's the
+        # whole point — charge the battery for free). CONF_GRID_CHARGING_ENABLED
+        # controls whether grid charging is also allowed outside the free window.
+        slot_grid_charge = in_free_window or grid_charging_enabled
 
         export_rate.append(slot_export_rate)
         import_rate.append(slot_import_rate)

@@ -1,7 +1,7 @@
 {
   "domain": "battery_optimizer",
   "name": "Battery Optimiser",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "description": "LP-optimised battery charge/discharge/export scheduling based on solar forecasts, weather, and TOU tariffs",
   "documentation": "https://github.com/Fabbbrrr/ha-battery-optimiser",
   "issue_tracker": "https://github.com/Fabbbrrr/ha-battery-optimiser/issues",
