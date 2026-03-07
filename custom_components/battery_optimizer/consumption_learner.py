@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -106,7 +106,11 @@ class ConsumptionLearner:
                 last_trained = timestamps[-1]
                 try:
                     t0 = datetime.fromisoformat(oldest)
+                    if t0.tzinfo is None:
+                        t0 = t0.replace(tzinfo=timezone.utc)
                     t1 = datetime.fromisoformat(last_trained)
+                    if t1.tzinfo is None:
+                        t1 = t1.replace(tzinfo=timezone.utc)
                     days_covered = round((t1 - t0).total_seconds() / 86400, 1)
                 except (ValueError, TypeError):
                     pass
@@ -206,6 +210,8 @@ class ConsumptionLearner:
                     obs_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                 else:
                     obs_dt = ts
+                if getattr(obs_dt, "tzinfo", None) is None:
+                    obs_dt = obs_dt.replace(tzinfo=timezone.utc)
 
                 kwh = stat.get("sum") or stat.get("mean", self.baseline_kw)
                 if kwh is None:

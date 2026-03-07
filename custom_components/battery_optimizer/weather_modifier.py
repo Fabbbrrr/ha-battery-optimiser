@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -154,6 +154,8 @@ async def async_get_weather_forecast_points(
             if not dt_str:
                 continue
             dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
             cond = str(entry.get("condition", snapshot.condition)).lower()
             cloud = float(entry.get("cloud_coverage", _condition_to_cloud(cond)))
             precip = float(entry.get("precipitation_probability", 0.0))
