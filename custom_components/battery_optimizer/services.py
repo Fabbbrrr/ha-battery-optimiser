@@ -16,6 +16,7 @@ from .const import (
     SERVICE_OVERRIDE_SLOT,
     SERVICE_PAUSE,
     SERVICE_RESUME,
+    SERVICE_RETRAIN_LEARNER,
     ACTION_CHARGE,
     ACTION_DISCHARGE,
     ACTION_HOLD,
@@ -93,6 +94,14 @@ async def async_register_services(hass: HomeAssistant) -> None:
             _LOGGER.info("Optimizer resumed via service")
             await coordinator.async_resume()
 
+    async def handle_retrain_learner(call: ServiceCall) -> None:
+        """Re-train the consumption learner from recorder history and trigger recalculation."""
+        for coordinator in _get_coordinators(hass):
+            _LOGGER.info("retrain_learner called via service")
+            await coordinator.async_retrain_learner()
+            if coordinator.optimizer_state == "running":
+                await coordinator.async_refresh()
+
     hass.services.async_register(
         DOMAIN, SERVICE_RECALCULATE_NOW, handle_recalculate_now
     )
@@ -106,6 +115,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(DOMAIN, SERVICE_PAUSE, handle_pause)
     hass.services.async_register(DOMAIN, SERVICE_RESUME, handle_resume)
+    hass.services.async_register(DOMAIN, SERVICE_RETRAIN_LEARNER, handle_retrain_learner)
 
     _services_registered = True
     _LOGGER.debug("Battery Optimizer services registered")
@@ -120,6 +130,7 @@ async def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_OVERRIDE_SLOT,
         SERVICE_PAUSE,
         SERVICE_RESUME,
+        SERVICE_RETRAIN_LEARNER,
     ):
         hass.services.async_remove(DOMAIN, service)
     _services_registered = False

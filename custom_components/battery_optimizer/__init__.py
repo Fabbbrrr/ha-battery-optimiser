@@ -17,7 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 _CARD_PATH = pathlib.Path(__file__).parent / "www"
 _CARD_URL = f"/battery_optimizer_static"
 _CARD_FILE = "battery-optimizer-card.js"
-_CARD_VERSION = "0.1.0"
+_CARD_VERSION = "0.2.0"
 
 _frontend_registered = False
 

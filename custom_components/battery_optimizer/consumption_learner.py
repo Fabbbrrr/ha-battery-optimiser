@@ -90,6 +90,40 @@ class ConsumptionLearner:
 
         return result
 
+    def get_learning_status(self) -> dict[str, Any]:
+        """Return a summary of current learning state for sensors and the UI card."""
+        obs = self._observations
+        count = len(obs)
+
+        days_covered = 0
+        last_trained: str | None = None
+        oldest: str | None = None
+        if obs:
+            timestamps = [o.get("ts", "") for o in obs if o.get("ts")]
+            if timestamps:
+                timestamps.sort()
+                oldest = timestamps[0]
+                last_trained = timestamps[-1]
+                try:
+                    t0 = datetime.fromisoformat(oldest)
+                    t1 = datetime.fromisoformat(last_trained)
+                    days_covered = round((t1 - t0).total_seconds() / 86400, 1)
+                except (ValueError, TypeError):
+                    pass
+
+        return {
+            "is_trained": self._is_trained,
+            "observation_count": count,
+            "profile_types": sorted(self._profiles.keys()),
+            "days_covered": days_covered,
+            "has_temperature_model": bool(self._temp_coefficients),
+            "last_trained": last_trained,
+            "oldest_data": oldest,
+            "granularity": self.granularity,
+            "baseline_kw": self.baseline_kw,
+            "lookback_days": self.lookback_days,
+        }
+
     def get_temperature_coefficients(self) -> dict[str, float]:
         """Return learned temperature→consumption coefficients.
 

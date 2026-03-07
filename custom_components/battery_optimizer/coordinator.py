@@ -350,6 +350,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         return {
             "state": STATE_RUNNING,
             "slots": slots_out,
+            "learning": self._learner.get_learning_status(),
             "health": {
                 "solver_status": "ok",
                 "forecast_staleness_seconds": 0,
@@ -372,6 +373,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         return {
             "state": STATE_PAUSED,
             "slots": [],
+            "learning": self._learner.get_learning_status(),
             "health": {
                 "solver_status": "paused",
                 "forecast_staleness_seconds": 0,
@@ -401,6 +403,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         return {
             "state": state,
             "slots": slots,
+            "learning": self._learner.get_learning_status(),
             "health": {
                 "solver_status": f"error: {error}",
                 "forecast_staleness_seconds": 0,

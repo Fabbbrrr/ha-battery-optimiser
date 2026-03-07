@@ -1,7 +1,7 @@
 """Constants for the Battery Optimizer integration."""
 
 DOMAIN = "battery_optimizer"
-PLATFORMS = ["sensor"]
+PLATFORMS = ["sensor", "button"]
 
 # Config entry keys
 CONF_BATTERY_SOC_ENTITY = "battery_soc_entity"
@@ -119,6 +119,7 @@ SERVICE_SET_AGGRESSIVENESS = "set_aggressiveness"
 SERVICE_OVERRIDE_SLOT = "override_slot"
 SERVICE_PAUSE = "pause"
 SERVICE_RESUME = "resume"
+SERVICE_RETRAIN_LEARNER = "retrain_learner"
 
 # Slot attribute keys
 ATTR_SLOTS = "slots"

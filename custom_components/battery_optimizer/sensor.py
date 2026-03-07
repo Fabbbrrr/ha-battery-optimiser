@@ -29,6 +29,7 @@ from .const import (
     ATTR_FORECAST_CONFIDENCE,
     ATTR_BRIDGE_TO_TIME,
     ATTR_BRIDGE_TO_SOURCE,
+    CONF_FREE_IMPORT_START,
 )
 from .coordinator import BatteryOptimizerCoordinator
 
@@ -54,6 +55,8 @@ async def async_setup_entry(
         EnergySecurityScoreSensor(coordinator, entry),
         EstimatedExportRevenueSensor(coordinator, entry),
         NextActionSensor(coordinator, entry),
+        SOCAtFreeChargeStartSensor(coordinator, entry),
+        LearningStatusSensor(coordinator, entry),
     ])
 
 
@@ -335,3 +338,107 @@ class NextActionSensor(CoordinatorEntity[BatteryOptimizerCoordinator], SensorEnt
                 "projected_soc": next_slot.get("projected_soc"),
             }
         return {}
+
+
+class SOCAtFreeChargeStartSensor(CoordinatorEntity[BatteryOptimizerCoordinator], SensorEntity):
+    """Projected battery SOC at the start of the configured free/cheap import window.
+
+    Useful for understanding how full the battery will be when cheap charging starts —
+    helps decide whether to pre-charge or let solar fill it during the day.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "SOC at Charge Window Start"
+    _attr_icon = "mdi:battery-charging-50"
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator: BatteryOptimizerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_soc_at_free_charge_start"
+        self._attr_device_info = _device_info(entry)
+        self._entry = entry
+
+    def _free_import_start(self) -> str | None:
+        """Return HH:MM of configured free import window, or None if not set."""
+        cfg = {**self._entry.data, **self._entry.options}
+        val = cfg.get(CONF_FREE_IMPORT_START)
+        return val[:5] if val else None  # normalise to HH:MM
+
+    def _find_slot(self, target_hhmm: str) -> dict | None:
+        data = self.coordinator.data
+        if not data:
+            return None
+        for slot in data.get(ATTR_SLOTS, []):
+            if slot.get("is_historical"):
+                continue
+            start_str = slot.get("start", "")
+            if len(start_str) >= 16 and start_str[11:16] == target_hhmm:
+                return slot
+        return None
+
+    @property
+    def native_value(self) -> float | None:
+        target = self._free_import_start()
+        if not target:
+            return None
+        slot = self._find_slot(target)
+        return slot.get("projected_soc") if slot else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        target = self._free_import_start()
+        if not target:
+            return {"configured": False, "note": "Set free_import_start in integration options"}
+        slot = self._find_slot(target)
+        if not slot:
+            return {"configured": True, "free_import_start": target, "slot_found": False}
+        return {
+            "configured": True,
+            "free_import_start": target,
+            "slot_found": True,
+            "slot_start": slot.get("start"),
+            "slot_end": slot.get("end"),
+            "planned_action": slot.get("action"),
+            "expected_solar_kwh": slot.get("expected_solar_kwh"),
+            "expected_consumption_kwh": slot.get("expected_consumption_kwh"),
+        }
+
+
+class LearningStatusSensor(CoordinatorEntity[BatteryOptimizerCoordinator], SensorEntity):
+    """Consumption learner status — trained / learning / not_started.
+
+    Exposes how many days of data have been learned, profile types,
+    whether temperature modelling is active, and when the last training run was.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Learning Status"
+    _attr_icon = "mdi:brain"
+
+    def __init__(self, coordinator: BatteryOptimizerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_learning_status"
+        self._attr_device_info = _device_info(entry)
+
+    @property
+    def native_value(self) -> str:
+        data = self.coordinator.data
+        if not data:
+            return "unavailable"
+        learning = data.get("learning", {})
+        if not learning:
+            return "not_started"
+        if learning.get("is_trained"):
+            return "trained"
+        if learning.get("observation_count", 0) > 0:
+            return "learning"
+        return "not_started"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.data
+        if not data:
+            return {}
+        return data.get("learning", {})
