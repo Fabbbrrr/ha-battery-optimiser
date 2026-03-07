@@ -22,6 +22,8 @@ from .const import (
     CONF_MIN_SOC_FLOOR_PERCENT,
     CONF_CONSUMPTION_ENTITY,
     CONF_CONSUMPTION_BASELINE_KW,
+    CONF_EXPORT_BONUS_START,
+    CONF_EXPORT_BONUS_END,
     CONF_WEATHER_ENTITY,
     CONF_SLOT_GRANULARITY_MINUTES,
     CONF_LOOKAHEAD_HOURS,
@@ -489,10 +491,13 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             },
         }
 
+        schedule_analysis = self._analyze_schedule(slots_out, solar_kwh, merged, slot_minutes)
+
         return {
             "state": STATE_RUNNING,
             "slots": slots_out,
             "learning": self._learner.get_learning_status(),
+            "schedule_analysis": schedule_analysis,
             "health": {
                 "solver_status": "ok",
                 "forecast_staleness_seconds": 0,
@@ -511,12 +516,139 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             "aggressiveness": self._aggressiveness,
         }
 
+    def _analyze_schedule(
+        self,
+        slots: list[dict[str, Any]],
+        solar_kwh: list[float],
+        merged: dict[str, Any],
+        slot_minutes: int,
+    ) -> dict[str, Any]:
+        """Compute export recommendation and charge window projections from the schedule."""
+
+        def _hhmm_to_minutes(hhmm: str | None) -> int | None:
+            if not hhmm:
+                return None
+            try:
+                h, m = map(int, str(hhmm)[:5].split(":"))
+                return h * 60 + m
+            except (ValueError, AttributeError):
+                return None
+
+        def _slot_start_minutes(slot: dict) -> int | None:
+            s = slot.get("start", "")
+            if len(s) < 16:
+                return None
+            try:
+                return int(s[11:13]) * 60 + int(s[14:16])
+            except (ValueError, IndexError):
+                return None
+
+        def _slot_in_window(slot: dict, win_start_min: int, win_end_min: int) -> bool:
+            sm = _slot_start_minutes(slot)
+            if sm is None:
+                return False
+            # Handle overnight windows (e.g. 23:30 → 06:00)
+            if win_end_min <= win_start_min:
+                return sm >= win_start_min or sm < win_end_min
+            return win_start_min <= sm < win_end_min
+
+        future_slots = [s for s in slots if not s.get("is_historical")]
+
+        # --- Export window analysis ---
+        exp_start_min = _hhmm_to_minutes(merged.get(CONF_EXPORT_BONUS_START))
+        exp_end_min = _hhmm_to_minutes(merged.get(CONF_EXPORT_BONUS_END))
+        export_slots = []
+        if exp_start_min is not None and exp_end_min is not None:
+            export_slots = [s for s in future_slots if _slot_in_window(s, exp_start_min, exp_end_min)]
+
+        exporting = [s for s in export_slots if s.get("action") == "export"]
+        avg_export_power = (
+            sum(s.get("power_kw", 0) for s in exporting) / len(exporting)
+            if exporting else 0.0
+        )
+        total_export_kwh = sum(s.get("power_kw", 0) * (slot_minutes / 60.0) for s in exporting)
+        soc_at_export_start = export_slots[0].get("projected_soc") if export_slots else None
+        soc_at_export_end = export_slots[-1].get("projected_soc") if export_slots else None
+
+        if not exp_start_min:
+            export_recommendation = "not_configured"
+            reasoning = ["Export bonus window not configured"]
+        elif not export_slots:
+            export_recommendation = "hold"
+            reasoning = ["No schedule slots found in export window"]
+        elif len(exporting) == len(export_slots):
+            export_recommendation = "full_export"
+            reasoning = ["All export window slots scheduled for export"]
+        elif exporting:
+            export_recommendation = "partial_export"
+            reasoning = [f"{len(exporting)}/{len(export_slots)} export window slots scheduled for export"]
+        else:
+            export_recommendation = "hold"
+            reasoning = ["Optimizer chose to hold battery during export window"]
+
+        # Add reasoning factors
+        health_score = None
+        if hasattr(self, 'data') and self.data:
+            health_score = self.data.get("health", {}).get("energy_security_score")
+        if health_score is not None and health_score < 0.5:
+            reasoning.append(f"Low energy security score ({health_score:.0%}) — battery may not reach charge window")
+
+        # --- Daily solar totals ---
+        slots_per_day = (24 * 60) // slot_minutes
+        daily_solar = []
+        for day in range(3):
+            start_i = day * slots_per_day
+            end_i = start_i + slots_per_day
+            day_total = sum(solar_kwh[start_i:end_i]) if len(solar_kwh) > start_i else 0.0
+            daily_solar.append(round(day_total, 2))
+
+        low_solar_threshold_kwh = 2.0
+        days_low_solar = sum(1 for d in daily_solar if d < low_solar_threshold_kwh)
+        if days_low_solar >= 2:
+            reasoning.append(f"{days_low_solar} days of low solar ahead — conservative export recommended")
+
+        # --- Charge window analysis ---
+        charge_start_min = _hhmm_to_minutes(merged.get(CONF_FREE_IMPORT_START))
+        charge_end_min = _hhmm_to_minutes(merged.get(CONF_FREE_IMPORT_END))
+        charge_slots = []
+        if charge_start_min is not None and charge_end_min is not None:
+            charge_slots = [s for s in future_slots if _slot_in_window(s, charge_start_min, charge_end_min)]
+
+        soc_at_charge_start = charge_slots[0].get("projected_soc") if charge_slots else None
+        soc_at_charge_end = charge_slots[-1].get("projected_soc") if charge_slots else None
+        soc_gain_in_charge_window = (
+            round(soc_at_charge_end - soc_at_charge_start, 1)
+            if soc_at_charge_start is not None and soc_at_charge_end is not None
+            else None
+        )
+
+        return {
+            "export_recommendation": export_recommendation,
+            "export_recommended_power_kw": round(avg_export_power, 2),
+            "export_slots_total": len(export_slots),
+            "export_slots_active": len(exporting),
+            "total_export_kwh": round(total_export_kwh, 2),
+            "soc_at_export_start": soc_at_export_start,
+            "soc_at_export_end": soc_at_export_end,
+            "soc_at_charge_start": soc_at_charge_start,
+            "soc_at_charge_end": soc_at_charge_end,
+            "soc_gain_in_charge_window": soc_gain_in_charge_window,
+            "daily_solar_kwh": daily_solar,
+            "days_low_solar_ahead": days_low_solar,
+            "reasoning": reasoning,
+            "export_window_start": merged.get(CONF_EXPORT_BONUS_START),
+            "export_window_end": merged.get(CONF_EXPORT_BONUS_END),
+            "charge_window_start": merged.get(CONF_FREE_IMPORT_START),
+            "charge_window_end": merged.get(CONF_FREE_IMPORT_END),
+        }
+
     def _build_paused_data(self) -> dict[str, Any]:
         """Return hold-everything data when optimizer is paused."""
         return {
             "state": STATE_PAUSED,
             "slots": [],
             "learning": self._learner.get_learning_status(),
+            "schedule_analysis": {},
             "health": {
                 "solver_status": "paused",
                 "forecast_staleness_seconds": 0,
@@ -547,6 +679,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             "state": state,
             "slots": slots,
             "learning": self._learner.get_learning_status(),
+            "schedule_analysis": {},
             "health": {
                 "solver_status": f"error: {error}",
                 "forecast_staleness_seconds": 0,

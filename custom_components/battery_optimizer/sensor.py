@@ -57,6 +57,11 @@ async def async_setup_entry(
         NextActionSensor(coordinator, entry),
         SOCAtFreeChargeStartSensor(coordinator, entry),
         LearningStatusSensor(coordinator, entry),
+        # Export recommendation sensors
+        ExportRecommendationSensor(coordinator, entry),
+        ExportRecommendedPowerSensor(coordinator, entry),
+        SOCGainInChargeWindowSensor(coordinator, entry),
+        DaysLowSolarAheadSensor(coordinator, entry),
     ])
 
 
@@ -66,7 +71,7 @@ def _device_info(entry: ConfigEntry) -> DeviceInfo:
         name="Battery Optimiser",
         manufacturer="Battery Optimiser",
         model="LP Schedule Optimiser",
-        sw_version="0.0.12",
+        sw_version="0.0.13",
     )
 
 
@@ -368,14 +373,35 @@ class SOCAtFreeChargeStartSensor(CoordinatorEntity[BatteryOptimizerCoordinator],
         return val[:5] if val else None  # normalise to HH:MM
 
     def _find_slot(self, target_hhmm: str) -> dict | None:
+        """Find the future slot whose window contains target_hhmm (HH:MM).
+
+        Slots are time-aligned to when the optimizer ran, not to fixed clock
+        times, so we can't do an exact match — we find the slot containing the
+        target time instead.
+        """
         data = self.coordinator.data
         if not data:
+            return None
+        try:
+            t_hour, t_min = map(int, target_hhmm.split(":"))
+            target_minutes = t_hour * 60 + t_min
+        except (ValueError, AttributeError):
             return None
         for slot in data.get(ATTR_SLOTS, []):
             if slot.get("is_historical"):
                 continue
             start_str = slot.get("start", "")
-            if len(start_str) >= 16 and start_str[11:16] == target_hhmm:
+            end_str = slot.get("end", "")
+            if len(start_str) < 16 or len(end_str) < 16:
+                continue
+            try:
+                s_min = int(start_str[11:13]) * 60 + int(start_str[14:16])
+                e_min = int(end_str[11:13]) * 60 + int(end_str[14:16])
+            except (ValueError, IndexError):
+                continue
+            if e_min < s_min:   # midnight rollover
+                e_min += 1440
+            if s_min <= target_minutes < e_min:
                 return slot
         return None
 
@@ -443,3 +469,149 @@ class LearningStatusSensor(CoordinatorEntity[BatteryOptimizerCoordinator], Senso
         if not data:
             return {}
         return data.get("learning", {})
+
+
+# ---------------------------------------------------------------------------
+# Export recommendation sensors
+# ---------------------------------------------------------------------------
+
+def _schedule_analysis(coordinator: BatteryOptimizerCoordinator) -> dict:
+    data = coordinator.data
+    if not data:
+        return {}
+    return data.get("schedule_analysis", {})
+
+
+class ExportRecommendationSensor(CoordinatorEntity[BatteryOptimizerCoordinator], SensorEntity):
+    """Export window recommendation — full_export / partial_export / hold / not_configured.
+
+    Automation-friendly sensor that summarises what the LP optimizer
+    recommends doing during the export bonus window (e.g. 18:00–20:00).
+    Use this to trigger inverter export mode at the start of the window.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Export Recommendation"
+    _attr_icon = "mdi:transmission-tower-export"
+
+    def __init__(self, coordinator: BatteryOptimizerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_export_recommendation"
+        self._attr_device_info = _device_info(entry)
+
+    @property
+    def native_value(self) -> str:
+        sa = _schedule_analysis(self.coordinator)
+        return sa.get("export_recommendation", "unknown")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        sa = _schedule_analysis(self.coordinator)
+        return {
+            "export_window_start": sa.get("export_window_start"),
+            "export_window_end": sa.get("export_window_end"),
+            "export_slots_total": sa.get("export_slots_total"),
+            "export_slots_active": sa.get("export_slots_active"),
+            "total_export_kwh": sa.get("total_export_kwh"),
+            "soc_at_export_start": sa.get("soc_at_export_start"),
+            "soc_at_export_end": sa.get("soc_at_export_end"),
+            "days_low_solar_ahead": sa.get("days_low_solar_ahead"),
+            "daily_solar_kwh": sa.get("daily_solar_kwh"),
+            "reasoning": sa.get("reasoning", []),
+        }
+
+
+class ExportRecommendedPowerSensor(CoordinatorEntity[BatteryOptimizerCoordinator], SensorEntity):
+    """Average export power (kW) recommended across the export bonus window.
+
+    Use this as the inverter export power limit. 0.0 means hold (no export).
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Export Recommended Power"
+    _attr_icon = "mdi:lightning-bolt-circle"
+    _attr_native_unit_of_measurement = "kW"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator: BatteryOptimizerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_export_recommended_power"
+        self._attr_device_info = _device_info(entry)
+
+    @property
+    def native_value(self) -> float | None:
+        sa = _schedule_analysis(self.coordinator)
+        if not sa:
+            return None
+        return sa.get("export_recommended_power_kw")
+
+
+class SOCGainInChargeWindowSensor(CoordinatorEntity[BatteryOptimizerCoordinator], SensorEntity):
+    """Projected SOC gain (percentage points) during the free charge window.
+
+    Calculated as: projected_soc at charge window end - projected_soc at start.
+    Requires free_import_start and free_import_end to be configured.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "SOC Gain in Charge Window"
+    _attr_icon = "mdi:battery-arrow-up"
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator: BatteryOptimizerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_soc_gain_charge_window"
+        self._attr_device_info = _device_info(entry)
+
+    @property
+    def native_value(self) -> float | None:
+        sa = _schedule_analysis(self.coordinator)
+        return sa.get("soc_gain_in_charge_window")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        sa = _schedule_analysis(self.coordinator)
+        return {
+            "soc_at_window_start": sa.get("soc_at_charge_start"),
+            "soc_at_window_end": sa.get("soc_at_charge_end"),
+            "window_start": sa.get("charge_window_start"),
+            "window_end": sa.get("charge_window_end"),
+        }
+
+
+class DaysLowSolarAheadSensor(CoordinatorEntity[BatteryOptimizerCoordinator], SensorEntity):
+    """Number of days (0–3) in the lookahead window with low solar forecast.
+
+    Low solar = daily total < 2 kWh. Used by export_recommendation reasoning.
+    High values (2+) indicate the optimizer should conserve battery charge.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Days Low Solar Ahead"
+    _attr_icon = "mdi:weather-cloudy"
+    _attr_native_unit_of_measurement = "d"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: BatteryOptimizerCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_days_low_solar_ahead"
+        self._attr_device_info = _device_info(entry)
+
+    @property
+    def native_value(self) -> int | None:
+        sa = _schedule_analysis(self.coordinator)
+        if not sa:
+            return None
+        return sa.get("days_low_solar_ahead")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        sa = _schedule_analysis(self.coordinator)
+        return {
+            "daily_solar_kwh": sa.get("daily_solar_kwh", []),
+            "low_solar_threshold_kwh": 2.0,
+        }

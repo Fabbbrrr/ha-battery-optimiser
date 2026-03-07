@@ -6,17 +6,21 @@
 
 const PREFIX = 'sensor.battery_optimiser';
 const ENTITIES = {
-  schedule:  `${PREFIX}_schedule`,
-  health:    `${PREFIX}_health`,
-  state:     `${PREFIX}_optimizer_state`,
-  learning:  `${PREFIX}_learning_status`,
-  power:     `${PREFIX}_current_power`,
-  projSoc:   `${PREFIX}_projected_soc`,
-  confidence:`${PREFIX}_forecast_confidence`,
-  security:  `${PREFIX}_energy_security_score`,
-  revenue:   `${PREFIX}_estimated_export_revenue`,
-  nextAction:`${PREFIX}_next_action`,
-  socAtCharge:`${PREFIX}_soc_at_free_charge_start`,
+  schedule:       `${PREFIX}_schedule`,
+  health:         `${PREFIX}_health`,
+  state:          `${PREFIX}_optimizer_state`,
+  learning:       `${PREFIX}_learning_status`,
+  power:          `${PREFIX}_current_power`,
+  projSoc:        `${PREFIX}_projected_soc`,
+  confidence:     `${PREFIX}_forecast_confidence`,
+  security:       `${PREFIX}_energy_security_score`,
+  revenue:        `${PREFIX}_estimated_export_revenue`,
+  nextAction:     `${PREFIX}_next_action`,
+  socAtCharge:    `${PREFIX}_soc_at_free_charge_start`,
+  exportRec:      `${PREFIX}_export_recommendation`,
+  exportPower:    `${PREFIX}_export_recommended_power`,
+  socGain:        `${PREFIX}_soc_gain_in_charge_window`,
+  daysLowSolar:   `${PREFIX}_days_low_solar_ahead`,
 };
 
 const ACTION_COLORS = {
@@ -513,6 +517,8 @@ class BatteryOptimizerPanel extends HTMLElement {
         </div>
       </div>
 
+      ${this._renderExportCard()}
+
       <div class="card">
         <p class="card-title">Controls</p>
         ${aggrPct != null ? `
@@ -525,6 +531,72 @@ class BatteryOptimizerPanel extends HTMLElement {
           <button class="btn-primary" id="btn-recalc">↻ Recalculate</button>
           <button class="btn-secondary" id="btn-pause">${isPaused ? '▶ Resume' : '⏸ Pause'}</button>
         </div>
+      </div>
+    `;
+  }
+
+  // ── Export recommendation card ────────────────────────────────────────────
+
+  _renderExportCard() {
+    const rec = this._val(ENTITIES.exportRec, null);
+    if (rec === null) return '';
+
+    const power = this._numVal(ENTITIES.exportPower, 1, '—');
+    const socGain = this._numVal(ENTITIES.socGain, 1, '—');
+    const daysLow = this._val(ENTITIES.daysLowSolar, '—');
+
+    const recColors = {
+      full_export:    '#2196f3',
+      partial_export: '#ff9800',
+      hold:           '#9e9e9e',
+      not_configured: '#9e9e9e',
+    };
+    const recLabels = {
+      full_export:    'Full export recommended',
+      partial_export: 'Partial export recommended',
+      hold:           'Hold — do not export',
+      not_configured: 'Export window not configured',
+    };
+    const color = recColors[rec] || '#9e9e9e';
+    const label = recLabels[rec] || rec;
+
+    const recAttrs = this._st(ENTITIES.exportRec)?.attributes || {};
+    const reasoning = (recAttrs.reasoning || []).map(r => `<li>${r}</li>`).join('');
+    const exportSlots = recAttrs.export_slots_active != null
+      ? `${recAttrs.export_slots_active}/${recAttrs.export_slots_total} slots exporting`
+      : '';
+    const totalKwh = recAttrs.total_export_kwh != null
+      ? `, ${recAttrs.total_export_kwh} kWh total`
+      : '';
+    const winStart = recAttrs.export_window_start || '—';
+    const winEnd   = recAttrs.export_window_end   || '—';
+
+    return `
+      <div class="card" style="border-left: 4px solid ${color}">
+        <p class="card-title">Export window recommendation</p>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <span style="font-size:18px;font-weight:600;color:${color}">${label}</span>
+        </div>
+        <div class="kv-grid">
+          <div class="kv-item">
+            <div class="label">Window</div>
+            <div class="value sm">${winStart} – ${winEnd}</div>
+          </div>
+          <div class="kv-item">
+            <div class="label">Recommended power</div>
+            <div class="value">${power !== '—' ? power + ' kW' : '—'}</div>
+          </div>
+          <div class="kv-item">
+            <div class="label">Charge window SOC gain</div>
+            <div class="value">${socGain !== '—' ? socGain + ' pp' : '—'}</div>
+          </div>
+          <div class="kv-item">
+            <div class="label">Low solar days ahead</div>
+            <div class="value">${daysLow}</div>
+          </div>
+        </div>
+        ${exportSlots ? `<p style="font-size:12px;color:var(--secondary-text-color);margin:10px 0 4px">${exportSlots}${totalKwh}</p>` : ''}
+        ${reasoning ? `<ul style="font-size:12px;color:var(--secondary-text-color);margin:6px 0 0;padding-left:16px">${reasoning}</ul>` : ''}
       </div>
     `;
   }
