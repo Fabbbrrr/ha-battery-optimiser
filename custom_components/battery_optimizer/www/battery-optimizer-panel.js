@@ -118,6 +118,13 @@ const STYLES = `
     color: var(--primary-color);
     border-bottom-color: var(--primary-color);
   }
+  .sidebar-toggle {
+    background: none; border: none; cursor: pointer;
+    padding: 8px 12px; color: var(--primary-text-color);
+    font-size: 20px; line-height: 1; opacity: 0.7;
+    display: flex; align-items: center; flex-shrink: 0;
+  }
+  .sidebar-toggle:hover { opacity: 1; }
   .content {
     padding: 16px;
     max-width: 960px;
@@ -708,6 +715,7 @@ class BatteryOptimizerPanel extends HTMLElement {
         </div>
       </div>
       <div class="tabs" id="tabs">
+        <button class="sidebar-toggle" id="btn-sidebar-toggle" title="Toggle sidebar">&#9776;</button>
         <div class="tab active" data-tab="schedule">Schedule</div>
         <div class="tab" data-tab="analytics">Analytics</div>
         <div class="tab" data-tab="history">History</div>
@@ -723,6 +731,10 @@ class BatteryOptimizerPanel extends HTMLElement {
       this._activeTab = tab.dataset.tab;
       root.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
       this._updateContent();
+    });
+
+    root.getElementById('btn-sidebar-toggle').addEventListener('click', () => {
+      window.dispatchEvent(new Event('hass-toggle-menu'));
     });
 
     this._updateHeader();
@@ -1728,7 +1740,7 @@ class BatteryOptimizerPanel extends HTMLElement {
         const fill   = active ? ratioColor(ratio) : '#555';
         const txt    = active ? ratio.toFixed(2) : '?';
         const txtCol = active ? '#000' : '#aaa';
-        const tip    = active ? `Hour ${h}:00 — ratio ${ratio.toFixed(3)} (${count} obs)` : `Hour ${h}:00 — fewer than ${minObs} observations`;
+        const tip    = active ? `Hour ${h}:00 — ratio ${ratio.toFixed(3)} (${count} obs)` : `Hour ${h}:00 — ${count} obs / ${minObs} needed`;
         return `<g><title>${tip}</title>
           <rect x="${x.toFixed(1)}" y="0" width="${cellW.toFixed(1)}" height="${cellH}" fill="${fill}" rx="2" stroke="var(--card-background-color)" stroke-width="1"/>
           ${cellW > 18 ? `<text x="${(x + cellW / 2).toFixed(1)}" y="${cellH / 2 + 4}" font-size="8" text-anchor="middle" fill="${txtCol}">${txt}</text>` : ''}
@@ -1755,7 +1767,7 @@ class BatteryOptimizerPanel extends HTMLElement {
           ${makeRow('Load', loadRatios, loadCounts).replace(/<g transform="translate\(0,0\)">/, '<g>')}
         </g>
       </svg>
-      <p style="font-size:11px;color:var(--secondary-text-color);margin:6px 0 0">&lt; 1.0 = forecast overshoots &nbsp;|&nbsp; &gt; 1.0 = forecast undershoots &nbsp;|&nbsp; grey = learning (fewer than ${minObs} obs)</p>`;
+      <p style="font-size:11px;color:var(--secondary-text-color);margin:6px 0 0">&lt; 1.0 = forecast overshoots &nbsp;|&nbsp; &gt; 1.0 = forecast undershoots &nbsp;|&nbsp; grey = learning (&lt;${minObs} obs, hover for count)</p>`;
   }
 
   _renderCorrectionsCard(corrections) {
@@ -1791,10 +1803,29 @@ class BatteryOptimizerPanel extends HTMLElement {
           : '')
       : '';
 
+    const minObs = corrections.min_obs_threshold || 3;
+    const solarCounts = corrections.solar_counts || [];
+    const loadCounts  = corrections.load_counts_weekday || [];
+    const bestSolar   = solarCounts.length ? Math.max(...solarCounts) : 0;
+    const bestLoad    = loadCounts.length  ? Math.max(...loadCounts)  : 0;
+    const bestBucket  = Math.max(bestSolar, bestLoad);
+    const obsTotal    = (corrections.solar_obs_total || 0) + (corrections.load_obs_total || 0);
+
+    const coldStartNote = active === false ? `
+      <div style="font-size:12px;color:var(--secondary-text-color);background:rgba(255,152,0,0.1);border-radius:8px;padding:10px 12px;margin-bottom:8px">
+        <strong>Cold start in progress</strong> — corrections activate bucket-by-bucket once ≥${minObs} observations per hour are collected (~1.5 days).<br>
+        Total observations collected: <strong>${obsTotal}</strong> &nbsp;|&nbsp;
+        Best bucket: <strong>${bestBucket} / ${minObs}</strong>
+        <div style="margin-top:6px;background:var(--divider-color);border-radius:4px;height:6px;overflow:hidden">
+          <div style="width:${Math.min(100, Math.round(bestBucket / minObs * 100))}%;height:100%;background:var(--primary-color);border-radius:4px;transition:width 0.3s"></div>
+        </div>
+      </div>` : '';
+
     return `
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <span style="font-size:13px;font-weight:500">Status</span>${pill}
       </div>
+      ${coldStartNote}
       ${driftNote}
       ${rows.map(([k, v]) => `<div class="stat-row"><span class="stat-label">${k}</span><span class="stat-value">${v}</span></div>`).join('')}
       <div class="btn-row" style="margin-top:12px">
@@ -1917,10 +1948,13 @@ class BatteryOptimizerPanel extends HTMLElement {
     const cfg      = diag.config   || {};
 
     const entityRows = Object.entries({
-      'SOC sensor':     entities.soc,
-      'Solar forecast': entities.solar_forecast,
-      'Consumption':    entities.consumption,
-      'Weather':        entities.weather,
+      'SOC sensor':            entities.soc,
+      'Solar forecast':        entities.solar_forecast,
+      'Solar forecast tmrw':   entities.solar_forecast_tomorrow,
+      'Solar generation':      entities.solar_generation,
+      'Consumption':           entities.consumption,
+      'Weather':               entities.weather,
+      'Export limit':          entities.export_limit,
     }).map(([label, e]) => {
       if (!e) return `<div class="debug-entity"><span class="debug-label">${label}</span><span class="debug-entity-id">no data — reload integration</span></div>`;
       const notConfigured = !e.id;
@@ -1936,10 +1970,13 @@ class BatteryOptimizerPanel extends HTMLElement {
     }).join('');
 
     const liveRows = Object.entries({
-      'SOC sensor':     entities.soc?.id,
-      'Solar forecast': entities.solar_forecast?.id,
-      'Consumption':    entities.consumption?.id,
-      'Weather':        entities.weather?.id,
+      'SOC sensor':           entities.soc?.id,
+      'Solar forecast':       entities.solar_forecast?.id,
+      'Solar forecast tmrw':  entities.solar_forecast_tomorrow?.id,
+      'Solar generation':     entities.solar_generation?.id,
+      'Consumption':          entities.consumption?.id,
+      'Weather':              entities.weather?.id,
+      'Export limit':         entities.export_limit?.id,
     }).filter(([, id]) => id).map(([label, entityId]) => {
       const live = this._st(entityId);
       const liveState = live ? live.state : 'not found in hass.states';
@@ -1967,6 +2004,8 @@ class BatteryOptimizerPanel extends HTMLElement {
       'Min SOC floor':   inputs.min_soc_pct         != null ? `${inputs.min_soc_pct}%` : '—',
       'Forecast format': inputs.forecast_format || '—',
       'Aggressiveness':  inputs.aggressiveness      != null ? `${Math.round(inputs.aggressiveness * 100)}%` : '—',
+      'Tracker records': inputs.tracker_record_count != null ? String(inputs.tracker_record_count) : '—',
+      'Corrections obs': inputs.corrector_obs_total  != null ? String(inputs.corrector_obs_total)  : '—',
       'Objective value': inputs.objective_value     != null ? inputs.objective_value.toFixed(4) : '—',
       'Problem size':    inputs.problem_size        != null ? `${inputs.problem_size} vars` : '—',
       'Solve time':      (() => {

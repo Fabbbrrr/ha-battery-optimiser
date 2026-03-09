@@ -18,6 +18,8 @@ from .const import (
     CONF_SOLAR_FORECAST_ENTITY,
     CONF_SOLAR_FORECAST_FORMAT,
     CONF_SOLAR_FORECAST_TOMORROW_ENTITY,
+    CONF_SOLAR_GENERATION_ENTITY,
+    CONF_MAX_EXPORT_LIMIT_ENTITY,
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_CAPACITY_KWH,
     CONF_MIN_SOC_FLOOR_PERCENT,
@@ -133,7 +135,6 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             STORAGE_KEY_LEARNED_PROFILES,
             STORAGE_KEY_PLANNED_VS_ACTUAL,
             STORAGE_KEY_FORECAST_CORRECTIONS,
-            CONF_SOLAR_GENERATION_ENTITY,
         )
 
         self._storage = Store(self.hass, STORAGE_VERSION, STORAGE_KEY_OPTIMIZER_STATE)
@@ -168,7 +169,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             self._tracker.load_from_storage(tracker_stored)
 
         # Set up forecast corrector
-        self._corrector = ForecastCorrector(alpha=0.1, min_obs=5)
+        self._corrector = ForecastCorrector(alpha=0.1, min_obs=3)
         corrector_stored = await self._corrector_storage.async_load()
         if corrector_stored:
             self._corrector.load_from_storage(corrector_stored)
@@ -572,14 +573,22 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             (sum(load_kwh) / len(load_kwh)) / (slot_minutes / 60.0), 3
         ) if load_kwh else 0.0
 
+        corrector_stats = self._corrector.get_stats() if self._corrector else {}
+        tracker_record_count = len(self._tracker._records) if self._tracker else 0
+        corrector_obs_total = (
+            corrector_stats.get("solar_obs_total", 0) + corrector_stats.get("load_obs_total", 0)
+        )
         diagnostics = {
             "entities": {
                 "soc": _entity_diag(soc_entity),
                 "solar_forecast": _entity_diag(forecast_entity),
                 "consumption": _entity_diag(consumption_entity),
                 "weather": _entity_diag(weather_entity if weather_entity else None),
+                "solar_forecast_tomorrow": _entity_diag(merged.get(CONF_SOLAR_FORECAST_TOMORROW_ENTITY)),
+                "solar_generation": _entity_diag(merged.get(CONF_SOLAR_GENERATION_ENTITY)),
+                "export_limit": _entity_diag(merged.get(CONF_MAX_EXPORT_LIMIT_ENTITY)),
             },
-            "corrections": self._corrector.get_stats() if self._corrector else {},
+            "corrections": corrector_stats,
             "inputs": {
                 "initial_soc_pct": round(initial_soc_pct, 2),
                 "n_slots": n_slots,
@@ -592,6 +601,8 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
                 "min_soc_pct": min_soc_pct,
                 "forecast_format": forecast_format,
                 "aggressiveness": self._aggressiveness,
+                "tracker_record_count": tracker_record_count,
+                "corrector_obs_total": corrector_obs_total,
             },
             "config": {
                 "free_import_start": merged.get(CONF_FREE_IMPORT_START),
