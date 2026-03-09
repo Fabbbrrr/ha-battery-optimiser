@@ -353,7 +353,17 @@ class BatteryOptimizerPanel extends HTMLElement {
     return this._slots().filter(s => !s.is_historical).slice(0, max);
   }
 
+  _decisionSlots() {
+    // decision_slots contains only export-bonus and free-import window slots —
+    // the hours where a real decision needs to be made.  Falls back to full
+    // future slots if the attribute isn't populated yet (older coordinator).
+    const ds = this._st(ENTITIES.schedule)?.attributes?.decision_slots;
+    if (ds && ds.length > 0) return ds.filter(s => !s.is_historical);
+    return this._futureSlots(24);
+  }
+
   _currentSlot() {
+    // Always read current slot from the full schedule (not decision_slots only)
     return this._futureSlots(1)[0] || null;
   }
 
@@ -445,7 +455,7 @@ class BatteryOptimizerPanel extends HTMLElement {
   // ── Schedule tab ──────────────────────────────────────────────────────────
 
   _renderSchedule() {
-    const future = this._futureSlots(24);
+    const future = this._decisionSlots();
     const current = this._currentSlot();
     const optState = this._val(ENTITIES.state, 'unknown');
     const isPaused = optState === 'paused';
@@ -499,7 +509,7 @@ class BatteryOptimizerPanel extends HTMLElement {
       </div>
 
       <div class="card">
-        <p class="card-title">Schedule — next ${future.length} slots</p>
+        <p class="card-title">Decision windows — ${future.length} slot${future.length !== 1 ? 's' : ''}</p>
         <div class="timeline">${timeline}</div>
       </div>
 

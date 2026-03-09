@@ -125,6 +125,7 @@ class BatteryScheduleSensor(CoordinatorEntity[BatteryOptimizerCoordinator], Sens
             return {}
         return {
             ATTR_SLOTS: data.get(ATTR_SLOTS, []),
+            "decision_slots": data.get("decision_slots", []),
             "aggressiveness": data.get("aggressiveness", 0.7),
             "state": data.get("state"),
         }

@@ -87,6 +87,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         self._unsub_interval = None
         self._unsub_forecast_change = None
         self._unsub_soc_change = None
+        self._unsub_pre_export = None
         self._storage = None
         self._learner_storage = None
         self._tracker_storage = None
@@ -177,6 +178,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
 
         self._setup_forecast_listener()
         self._setup_soc_listener()
+        self._schedule_pre_export_refresh()
 
     def _setup_forecast_listener(self) -> None:
         """Track forecast entity state changes and trigger recalculation."""
@@ -227,6 +229,10 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         merged = {**cfg, **opts}
 
         now = dt_util.now()
+        # Align start to the beginning of the current hour so slot boundaries are always
+        # at clean clock times (e.g. 21:00, 22:00, 23:00…) regardless of when the
+        # optimizer happens to run. This makes the schedule predictable and readable.
+        now = now.replace(minute=0, second=0, microsecond=0)
         slot_minutes = int(merged.get(CONF_SLOT_GRANULARITY_MINUTES, DEFAULT_SLOT_GRANULARITY_MINUTES))
         lookahead_hours = int(merged.get(CONF_LOOKAHEAD_HOURS, DEFAULT_LOOKAHEAD_HOURS))
         n_slots = (lookahead_hours * 60) // slot_minutes
@@ -505,6 +511,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         }
 
         schedule_analysis = self._analyze_schedule(slots_out, solar_kwh, merged, slot_minutes)
+        decision_slots = self._filter_decision_slots(slots_out, merged)
 
         # Persist learner state so profiles survive restarts
         if self._learner_storage and self._learner.get_learning_status().get("is_trained"):
@@ -513,6 +520,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         return {
             "state": STATE_RUNNING,
             "slots": slots_out,
+            "decision_slots": decision_slots,
             "learning": self._learner.get_learning_status(),
             "schedule_analysis": schedule_analysis,
             "health": {
@@ -786,6 +794,119 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             "aggressiveness": self._aggressiveness,
         }
 
+    def _filter_decision_slots(
+        self,
+        slots: list[dict[str, Any]],
+        merged: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Return only slots that fall within the export bonus or free import windows.
+
+        The LP still optimises over the full lookahead to get accurate SOC projections,
+        but only slots where a real-time decision is needed (export or charge window)
+        are exposed to the UI schedule display.  If no windows are configured all
+        slots are returned unchanged.
+        """
+        def _hhmm(s: str | None) -> int | None:
+            if not s:
+                return None
+            try:
+                h, m = map(int, str(s)[:5].split(":"))
+                return h * 60 + m
+            except (ValueError, AttributeError):
+                return None
+
+        def _slot_min(slot: dict) -> int | None:
+            start = slot.get("start", "")
+            if len(start) < 16:
+                return None
+            try:
+                return int(start[11:13]) * 60 + int(start[14:16])
+            except (ValueError, IndexError):
+                return None
+
+        def _in_win(sm: int | None, start_min: int, end_min: int) -> bool:
+            if sm is None:
+                return False
+            if end_min <= start_min:  # overnight window
+                return sm >= start_min or sm < end_min
+            return start_min <= sm < end_min
+
+        exp_start = _hhmm(merged.get(CONF_EXPORT_BONUS_START))
+        exp_end = _hhmm(merged.get(CONF_EXPORT_BONUS_END))
+        charge_start = _hhmm(merged.get(CONF_FREE_IMPORT_START))
+        charge_end = _hhmm(merged.get(CONF_FREE_IMPORT_END))
+
+        if exp_start is None and charge_start is None:
+            return slots  # No windows configured — return all
+
+        result = []
+        for slot in slots:
+            sm = _slot_min(slot)
+            in_export = (exp_start is not None and exp_end is not None
+                         and _in_win(sm, exp_start, exp_end))
+            in_charge = (charge_start is not None and charge_end is not None
+                         and _in_win(sm, charge_start, charge_end))
+            if in_export or in_charge:
+                result.append(slot)
+
+        return result if result else slots
+
+    def _schedule_pre_export_refresh(self) -> None:
+        """Schedule a one-shot optimization refresh 15 minutes before the next export bonus window.
+
+        This ensures the export/hold recommendation is computed fresh with the latest
+        weather, solar forecast, and SOC data just before the decision window opens —
+        rather than relying on a calculation made hours earlier.
+        """
+        from homeassistant.helpers.event import async_call_later
+
+        # Cancel any existing pre-export timer
+        if self._unsub_pre_export is not None:
+            self._unsub_pre_export()
+            self._unsub_pre_export = None
+
+        merged = {**self.entry.data, **self.entry.options}
+        export_start_str = merged.get(CONF_EXPORT_BONUS_START)
+        if not export_start_str:
+            return
+
+        try:
+            exp_h, exp_m = map(int, export_start_str.split(":"))
+        except (ValueError, AttributeError):
+            return
+
+        now = dt_util.now()
+
+        # Target = 15 minutes before the export window opens
+        trigger_total_min = exp_h * 60 + exp_m - 15
+        if trigger_total_min < 0:
+            trigger_total_min += 24 * 60
+        trigger_h = (trigger_total_min // 60) % 24
+        trigger_m = trigger_total_min % 60
+
+        candidate = now.replace(hour=trigger_h, minute=trigger_m, second=0, microsecond=0)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+
+        delay_secs = (candidate - now).total_seconds()
+        _LOGGER.info(
+            "Pre-export refresh scheduled for %s (%.0f min from now)",
+            candidate.strftime("%H:%M"),
+            delay_secs / 60,
+        )
+
+        @callback
+        def _on_pre_export_trigger(_now: datetime) -> None:
+            if self._optimizer_state == STATE_RUNNING:
+                _LOGGER.info(
+                    "Pre-export optimization refresh triggered — 15 min before bonus window"
+                )
+                self.hass.async_create_task(self.async_refresh())
+            # Reschedule for the next day's window
+            self._schedule_pre_export_refresh()
+
+        self._unsub_pre_export = async_call_later(self.hass, delay_secs, _on_pre_export_trigger)
+
     async def async_pause(self) -> None:
         """Pause the optimizer and persist state."""
         self._optimizer_state = STATE_PAUSED
@@ -857,6 +978,9 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             self._unsub_forecast_change()
         if self._unsub_soc_change:
             self._unsub_soc_change()
+        if self._unsub_pre_export:
+            self._unsub_pre_export()
+            self._unsub_pre_export = None
         if self._tracker:
             self._tracker.cancel_all()
 
