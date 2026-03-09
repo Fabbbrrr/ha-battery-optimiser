@@ -367,7 +367,7 @@ class BatteryOptimizerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional(CONF_MAX_EXPORT_LIMIT_KW, default=DEFAULT_MAX_EXPORT_LIMIT_KW): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0.1, max=50, step=0.1, unit_of_measurement="kW", mode="box")
             ),
-            vol.Optional(CONF_MAX_EXPORT_LIMIT_ENTITY, default=""): selector.EntitySelector(
+            vol.Optional(CONF_MAX_EXPORT_LIMIT_ENTITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
         })
@@ -463,17 +463,24 @@ class BatteryOptimizerOptionsFlow(config_entries.OptionsFlow):
     async def async_step_entity_settings(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Options: re-map all entity selections."""
         if user_input is not None:
-            self._options.update(user_input)
+            # Strip empty/None entity values so they don't override valid stored config
+            cleaned = {k: v for k, v in user_input.items() if v not in (None, "")}
+            self._options.update(cleaned)
             return self.async_create_entry(title="", data=self._options)
 
-        current = self._config_entry.data
+        current = {**self._config_entry.data, **self._config_entry.options}
+
+        def _entity_opt(key, **kwargs):
+            val = current.get(key) or None
+            return vol.Optional(key, description={"suggested_value": val})
+
         schema = vol.Schema({
-            vol.Optional(CONF_BATTERY_SOC_ENTITY, default=current.get(CONF_BATTERY_SOC_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-            vol.Optional(CONF_SOLAR_FORECAST_ENTITY, default=current.get(CONF_SOLAR_FORECAST_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-            vol.Optional(CONF_SOLAR_FORECAST_TOMORROW_ENTITY, default=current.get(CONF_SOLAR_FORECAST_TOMORROW_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-            vol.Optional(CONF_CONSUMPTION_ENTITY, default=current.get(CONF_CONSUMPTION_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-            vol.Optional(CONF_WEATHER_ENTITY, default=current.get(CONF_WEATHER_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="weather")),
-            vol.Optional(CONF_MAX_EXPORT_LIMIT_ENTITY, default=current.get(CONF_MAX_EXPORT_LIMIT_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            _entity_opt(CONF_BATTERY_SOC_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            _entity_opt(CONF_SOLAR_FORECAST_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            _entity_opt(CONF_SOLAR_FORECAST_TOMORROW_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            _entity_opt(CONF_CONSUMPTION_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            _entity_opt(CONF_WEATHER_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="weather")),
+            _entity_opt(CONF_MAX_EXPORT_LIMIT_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
         })
 
         return self.async_show_form(step_id="entity_settings", data_schema=schema)
