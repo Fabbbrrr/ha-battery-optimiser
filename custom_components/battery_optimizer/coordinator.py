@@ -570,6 +570,8 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             "config": {
                 "free_import_start": merged.get(CONF_FREE_IMPORT_START),
                 "free_import_end": merged.get(CONF_FREE_IMPORT_END),
+                "export_bonus_start": merged.get(CONF_EXPORT_BONUS_START),
+                "export_bonus_end": merged.get(CONF_EXPORT_BONUS_END),
                 "bridge_fallback_time": merged.get(CONF_BRIDGE_TO_FALLBACK_TIME, DEFAULT_BRIDGE_TO_FALLBACK_TIME),
                 "fallback_mode": merged.get(CONF_FALLBACK_MODE, DEFAULT_FALLBACK_MODE),
             },
@@ -914,7 +916,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             if in_export or in_charge:
                 result.append(slot)
 
-        return result if result else slots
+        return result
 
     def _schedule_pre_export_refresh(self) -> None:
         """Schedule a one-shot optimization refresh 15 minutes before the next export bonus window.

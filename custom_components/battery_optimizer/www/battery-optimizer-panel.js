@@ -646,8 +646,13 @@ class BatteryOptimizerPanel extends HTMLElement {
   }
 
   _decisionSlots() {
-    const ds = this._st(ENTITIES.schedule)?.attributes?.decision_slots;
-    if (ds && ds.length > 0) return ds.filter(s => !s.is_historical);
+    const attrs = this._st(ENTITIES.schedule)?.attributes;
+    // If decision_slots key is present (even empty), respect it — windows may be configured
+    // but we're currently outside them. Only fall back to all future slots when the key
+    // is absent entirely (old firmware / optimizer not yet run).
+    if (attrs && 'decision_slots' in attrs) {
+      return (attrs.decision_slots || []).filter(s => !s.is_historical);
+    }
     return this._futureSlots(24);
   }
 
@@ -826,7 +831,7 @@ class BatteryOptimizerPanel extends HTMLElement {
 
       <div class="card">
         <p class="card-title">Decision windows — ${decSlots.length} slot${decSlots.length !== 1 ? 's' : ''}</p>
-        ${this._renderSlotsList(decSlots)}
+        ${this._renderDecisionWindowContent(decSlots)}
       </div>
 
       ${this._renderExportCard()}
@@ -1086,6 +1091,27 @@ class BatteryOptimizerPanel extends HTMLElement {
         <circle cx="${padL + 80}" cy="${legendY - 3}" r="3.5" fill="#ef5350"/>
         <text x="${padL + 88}" y="${legendY}" font-size="9" fill="#ef5350">Load (kWh)</text>
       </svg>`;
+  }
+
+  _renderDecisionWindowContent(decSlots) {
+    if (decSlots.length > 0) return this._renderSlotsList(decSlots);
+    // Empty — check if windows are configured to give a useful message
+    const cfg = this._st(ENTITIES.health)?.attributes?.diagnostics?.config || {};
+    const hasChargeWin  = cfg.free_import_start && cfg.free_import_end;
+    const hasExportWin  = cfg.export_bonus_start && cfg.export_bonus_end;
+    const attrs = this._st(ENTITIES.schedule)?.attributes;
+    const windowsKnown  = attrs && 'decision_slots' in attrs;
+
+    if (!windowsKnown) {
+      return '<p class="no-data">No decision slots yet — the optimizer has not run.</p>';
+    }
+    if (!hasChargeWin && !hasExportWin) {
+      return this._renderSlotsList(this._futureSlots(24));
+    }
+    const parts = [];
+    if (hasChargeWin)  parts.push(`free import ${cfg.free_import_start}–${cfg.free_import_end}`);
+    if (hasExportWin) parts.push(`export bonus ${cfg.export_bonus_start}–${cfg.export_bonus_end}`);
+    return `<p class="no-data">Outside decision windows (${parts.join(', ')}) — no action required right now.</p>`;
   }
 
   _renderSlotsList(slots) {
