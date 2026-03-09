@@ -70,6 +70,64 @@ def parse_forecast(
         return [0.0] * n_slots
 
 
+def parse_extra_day_forecast(
+    hass: HomeAssistant,
+    entity_id: str,
+    start_dt: datetime,
+    slot_minutes: int,
+    n_slots: int,
+) -> list[float]:
+    """Read a daily-kWh sensor and distribute it into future slots starting from tomorrow.
+
+    The sensor state is treated as tomorrow's expected kWh. Attributes are also checked
+    for day-after-tomorrow values using the same keys as _parse_generic_kwh.
+    Returns a list[float] of length n_slots to be added to the main forecast array.
+    """
+    result = [0.0] * n_slots
+    state = hass.states.get(entity_id)
+    if state is None or state.state in ("unavailable", "unknown"):
+        _LOGGER.warning("Solar tomorrow entity %s unavailable, skipping", entity_id)
+        return result
+
+    try:
+        tomorrow_kwh = float(state.state)
+    except (ValueError, TypeError):
+        _LOGGER.warning("Solar tomorrow entity %s has non-numeric state, skipping", entity_id)
+        return result
+
+    if tomorrow_kwh > 0:
+        tomorrow = start_dt.date() + timedelta(days=1)
+        sunrise_t, sunset_t = _get_daylight_window(hass, tomorrow)
+        _distribute_kwh_to_slots(result, tomorrow_kwh, sunrise_t, sunset_t, start_dt, slot_minutes, 0)
+        _LOGGER.debug(
+            "Extra solar forecast: tomorrow %.2f kWh from %s",
+            tomorrow_kwh, entity_id,
+        )
+
+    # Also check for day-after-tomorrow in attributes
+    day_after_kwh = None
+    for key in ("energy_production_tomorrow", "kwh_tomorrow", "tomorrow_kwh", "forecast_tomorrow",
+                "day_after_tomorrow", "energy_production_d2"):
+        val = state.attributes.get(key)
+        if val is not None:
+            try:
+                day_after_kwh = float(val)
+                break
+            except (TypeError, ValueError):
+                pass
+
+    if day_after_kwh is not None and day_after_kwh > 0:
+        day_after = start_dt.date() + timedelta(days=2)
+        sunrise_d2, sunset_d2 = _get_daylight_window(hass, day_after)
+        _distribute_kwh_to_slots(result, day_after_kwh, sunrise_d2, sunset_d2, start_dt, slot_minutes, 0)
+        _LOGGER.debug(
+            "Extra solar forecast: day+2 %.2f kWh from %s attributes",
+            day_after_kwh, entity_id,
+        )
+
+    return result
+
+
 def _detect_format(state) -> str:
     """Auto-detect forecast format from entity state attributes."""
     attrs = state.attributes
