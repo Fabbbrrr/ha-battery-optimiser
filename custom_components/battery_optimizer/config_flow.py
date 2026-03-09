@@ -478,6 +478,17 @@ class BatteryOptimizerOptionsFlow(config_entries.OptionsFlow):
             _entity_opt(CONF_BATTERY_SOC_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             _entity_opt(CONF_SOLAR_FORECAST_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             _entity_opt(CONF_SOLAR_FORECAST_TOMORROW_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Optional(
+                CONF_SOLAR_FORECAST_FORMAT,
+                default=current.get(CONF_SOLAR_FORECAST_FORMAT, FORECAST_FORMAT_AUTO),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=[
+                    {"value": FORECAST_FORMAT_AUTO,            "label": "Auto-detect (recommended)"},
+                    {"value": FORECAST_FORMAT_FORECAST_SOLAR,  "label": "Forecast.Solar"},
+                    {"value": FORECAST_FORMAT_SOLCAST,         "label": "Solcast"},
+                    {"value": FORECAST_FORMAT_GENERIC_KWH,     "label": "Generic daily kWh sensor"},
+                ])
+            ),
             _entity_opt(CONF_CONSUMPTION_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             _entity_opt(CONF_WEATHER_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="weather")),
             _entity_opt(CONF_MAX_EXPORT_LIMIT_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),

@@ -367,16 +367,26 @@ def _resample_to_slots(
     if not raw_slots:
         return result
 
+    # Detect per-entry period duration from gap to next entry.
+    # This correctly handles both Solcast (30-min periods) and Forecast.Solar (60-min wh_period).
+    entry_durations: list[timedelta] = []
+    for idx, (raw_start, _) in enumerate(raw_slots):
+        if idx < len(raw_slots) - 1:
+            gap = (raw_slots[idx + 1][0] - raw_start).total_seconds()
+            # Clamp to sensible range: 15 min – 60 min
+            dur = timedelta(seconds=max(900, min(3600, int(gap))))
+        else:
+            dur = entry_durations[-1] if entry_durations else timedelta(minutes=30)
+        entry_durations.append(dur)
+
     for i in range(n_slots):
         slot_start = start_dt + slot_delta * i
         slot_end = slot_start + slot_delta
 
         # Sum Wh from raw slots that overlap this schedule slot
         slot_wh = 0.0
-        for raw_start, raw_wh in raw_slots:
-            # Assume each raw forecast entry is 30 minutes (Solcast) or 60 minutes (Forecast.Solar)
-            # We approximate raw period duration from gaps between entries
-            raw_end = raw_start + timedelta(minutes=30)  # default assumption
+        for (raw_start, raw_wh), raw_dur in zip(raw_slots, entry_durations):
+            raw_end = raw_start + raw_dur
 
             # Compute overlap fraction
             overlap_start = max(slot_start, raw_start)
@@ -384,7 +394,7 @@ def _resample_to_slots(
             if overlap_end <= overlap_start:
                 continue
 
-            raw_duration = (raw_end - raw_start).total_seconds()
+            raw_duration = raw_dur.total_seconds()
             overlap_duration = (overlap_end - overlap_start).total_seconds()
             fraction = overlap_duration / raw_duration if raw_duration > 0 else 0
             slot_wh += raw_wh * fraction
