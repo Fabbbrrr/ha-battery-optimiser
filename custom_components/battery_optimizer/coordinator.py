@@ -489,9 +489,35 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
 
             slots_out.append(s)
 
-        # --- Enrich historical slots with actual values from tracker ---
-        if self._tracker:
-            slots_out = self._tracker.enrich_historical_slots(slots_out)
+        # --- Prepend historical slots from tracker records ---
+        # The LP only generates future slots; tracker records hold what actually happened.
+        # Build synthetic historical slot dicts from the last 24h of records so the
+        # History tab charts have data to display.
+        if self._tracker and self._tracker._records:
+            hist_cutoff = (now - timedelta(hours=24)).isoformat()
+            historical_slots = []
+            for rec in sorted(
+                (r for r in self._tracker._records if r.get("slot_start", "") >= hist_cutoff),
+                key=lambda r: r.get("slot_start", ""),
+            ):
+                historical_slots.append({
+                    "start":                    rec.get("slot_start"),
+                    "end":                      rec.get("slot_end"),
+                    "action":                   rec.get("planned_action"),
+                    "power_kw":                 rec.get("planned_power_kw"),
+                    "projected_soc":            rec.get("planned_soc"),
+                    "expected_solar_kwh":       rec.get("planned_solar_kwh"),
+                    "expected_consumption_kwh": rec.get("planned_consumption_kwh"),
+                    "actual_soc":               rec.get("actual_soc"),
+                    "actual_solar_kwh":         rec.get("actual_solar_kwh"),
+                    "actual_generation_kwh":    rec.get("actual_generation_kwh"),
+                    "actual_consumption_kwh":   rec.get("actual_consumption_kwh"),
+                    "is_historical":            True,
+                })
+            slots_out = historical_slots + slots_out
+
+        # (enrich_historical_slots not called here — LP slots are all future;
+        #  historical data comes from tracker records prepended above)
 
         # --- Ingest new tracker records into forecast corrector ---
         if self._corrector and self._tracker:
