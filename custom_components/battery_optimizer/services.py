@@ -17,6 +17,7 @@ from .const import (
     SERVICE_PAUSE,
     SERVICE_RESUME,
     SERVICE_RETRAIN_LEARNER,
+    SERVICE_RESET_CORRECTIONS,
     ACTION_CHARGE,
     ACTION_DISCHARGE,
     ACTION_HOLD,
@@ -102,6 +103,12 @@ async def async_register_services(hass: HomeAssistant) -> None:
             if coordinator.optimizer_state == "running":
                 await coordinator.async_refresh()
 
+    async def handle_reset_corrections(call: ServiceCall) -> None:
+        """Reset all learned forecast correction factors back to defaults."""
+        for coordinator in _get_coordinators(hass):
+            _LOGGER.info("reset_corrections called via service")
+            await coordinator.async_reset_corrections()
+
     hass.services.async_register(
         DOMAIN, SERVICE_RECALCULATE_NOW, handle_recalculate_now
     )
@@ -116,6 +123,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_PAUSE, handle_pause)
     hass.services.async_register(DOMAIN, SERVICE_RESUME, handle_resume)
     hass.services.async_register(DOMAIN, SERVICE_RETRAIN_LEARNER, handle_retrain_learner)
+    hass.services.async_register(DOMAIN, SERVICE_RESET_CORRECTIONS, handle_reset_corrections)
 
     _services_registered = True
     _LOGGER.debug("Battery Optimizer services registered")
@@ -131,6 +139,7 @@ async def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_PAUSE,
         SERVICE_RESUME,
         SERVICE_RETRAIN_LEARNER,
+        SERVICE_RESET_CORRECTIONS,
     ):
         hass.services.async_remove(DOMAIN, service)
     _services_registered = False

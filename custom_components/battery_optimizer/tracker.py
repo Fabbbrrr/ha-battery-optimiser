@@ -28,10 +28,12 @@ class PlannedVsActualTracker:
         consumption_entity: str | None,
         capacity_kwh: float,
         retention_days: int = 90,
+        solar_generation_entity: str | None = None,
     ) -> None:
         self._hass = hass
         self._soc_entity = soc_entity
         self._solar_entity = solar_entity
+        self._solar_generation_entity = solar_generation_entity
         self._consumption_entity = consumption_entity
         self._capacity_kwh = capacity_kwh
         self._retention_days = retention_days
@@ -91,8 +93,9 @@ class PlannedVsActualTracker:
 
     async def _record_actual(self, planned_slot: dict[str, Any]) -> None:
         """Poll actual values and append a planned-vs-actual record."""
-        actual_soc = self._read_float(self._soc_entity)
-        actual_solar = self._read_float(self._solar_entity)
+        actual_soc         = self._read_float(self._soc_entity)
+        actual_solar       = self._read_float(self._solar_entity)
+        actual_generation  = self._read_float(self._solar_generation_entity)
         actual_consumption = self._read_float(self._consumption_entity)
 
         record = {
@@ -105,9 +108,10 @@ class PlannedVsActualTracker:
             "planned_soc": planned_slot.get("projected_soc"),
             "planned_solar_kwh": planned_slot.get("expected_solar_kwh"),
             "planned_consumption_kwh": planned_slot.get("expected_consumption_kwh"),
-            # Actual values
+            # Actual values (solar_kwh = forecast entity snapshot; generation_kwh = real meter)
             "actual_soc": actual_soc,
             "actual_solar_kwh": actual_solar,
+            "actual_generation_kwh": actual_generation,
             "actual_consumption_kwh": actual_consumption,
         }
 

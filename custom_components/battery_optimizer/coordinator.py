@@ -61,6 +61,7 @@ from .optimizer import (
     build_optimization_input,
     build_tariff_schedule,
 )
+from .forecast_corrector import ForecastCorrector
 from .tracker import PlannedVsActualTracker
 from .weather_modifier import (
     apply_temperature_load_adjustment,
@@ -91,7 +92,9 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         self._storage = None
         self._learner_storage = None
         self._tracker_storage = None
+        self._corrector_storage = None
         self._tracker: PlannedVsActualTracker | None = None
+        self._corrector: ForecastCorrector | None = None
 
         cfg = entry.data
         opts = entry.options
@@ -125,11 +128,17 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
     async def async_setup(self) -> None:
         """Initialize storage, restore persisted state, and set up listeners."""
         from homeassistant.helpers.storage import Store
-        from .const import STORAGE_KEY_LEARNED_PROFILES, STORAGE_KEY_PLANNED_VS_ACTUAL
+        from .const import (
+            STORAGE_KEY_LEARNED_PROFILES,
+            STORAGE_KEY_PLANNED_VS_ACTUAL,
+            STORAGE_KEY_FORECAST_CORRECTIONS,
+            CONF_SOLAR_GENERATION_ENTITY,
+        )
 
         self._storage = Store(self.hass, STORAGE_VERSION, STORAGE_KEY_OPTIMIZER_STATE)
         self._learner_storage = Store(self.hass, STORAGE_VERSION, STORAGE_KEY_LEARNED_PROFILES)
         self._tracker_storage = Store(self.hass, STORAGE_VERSION, STORAGE_KEY_PLANNED_VS_ACTUAL)
+        self._corrector_storage = Store(self.hass, STORAGE_VERSION, STORAGE_KEY_FORECAST_CORRECTIONS)
 
         stored = await self._storage.async_load()
         if stored:
@@ -148,6 +157,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             hass=self.hass,
             soc_entity=cfg.get(CONF_BATTERY_SOC_ENTITY, ""),
             solar_entity=cfg.get(CONF_SOLAR_FORECAST_ENTITY),
+            solar_generation_entity=cfg.get(CONF_SOLAR_GENERATION_ENTITY),
             consumption_entity=cfg.get(CONF_CONSUMPTION_ENTITY),
             capacity_kwh=float(cfg.get(CONF_BATTERY_CAPACITY_KWH, 10.0)),
             retention_days=int(cfg.get(CONF_DATA_RETENTION_DAYS, DEFAULT_DATA_RETENTION_DAYS)),
@@ -155,6 +165,15 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         tracker_stored = await self._tracker_storage.async_load()
         if tracker_stored:
             self._tracker.load_from_storage(tracker_stored)
+
+        # Set up forecast corrector
+        self._corrector = ForecastCorrector(alpha=0.1, min_obs=5)
+        corrector_stored = await self._corrector_storage.async_load()
+        if corrector_stored:
+            self._corrector.load_from_storage(corrector_stored)
+            _LOGGER.debug("ForecastCorrector: restored state (solar obs=%d, load obs=%d)",
+                          self._corrector.get_stats().get("solar_obs_total", 0),
+                          self._corrector.get_stats().get("load_obs_total", 0))
 
         # Kick off initial recorder training in background, then persist the result
         consumption_entity = cfg.get(CONF_CONSUMPTION_ENTITY)
@@ -369,6 +388,25 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
                 "Add one under Settings → Configure for improved accuracy."
             )
 
+        # --- Apply learned forecast bias corrections ---
+        if self._corrector:
+            slot_start_times = [
+                now + timedelta(minutes=slot_minutes * i) for i in range(n_slots)
+            ]
+            solar_kwh, load_kwh = self._corrector.apply_corrections(
+                solar_kwh, load_kwh, slot_start_times
+            )
+            stats = self._corrector.get_stats()
+            if stats.get("active"):
+                _LOGGER.info(
+                    "Forecast corrections active — solar ×%.2f (from %d obs), "
+                    "load weekday ×%.2f (from %d obs)",
+                    stats.get("solar_mean_ratio") or 1.0,
+                    stats.get("solar_obs_total", 0),
+                    stats.get("load_mean_ratio_weekday") or 1.0,
+                    stats.get("load_obs_total", 0),
+                )
+
         # --- Build tariff schedule ---
         tariff = build_tariff_schedule(merged, now, n_slots, slot_minutes)
 
@@ -440,6 +478,17 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         if self._tracker:
             slots_out = self._tracker.enrich_historical_slots(slots_out)
 
+        # --- Ingest new tracker records into forecast corrector ---
+        if self._corrector and self._tracker:
+            cutoff   = self._corrector.last_ingested_at
+            new_recs = [r for r in self._tracker._records
+                        if r.get("recorded_at", "") > cutoff]
+            ingested = sum(1 for r in new_recs if self._corrector.ingest_record(r))
+            if ingested > 0:
+                self._corrector.last_ingested_at = dt_util.now().isoformat()
+                await self._corrector_storage.async_save(self._corrector.to_storage())
+                _LOGGER.debug("ForecastCorrector: ingested %d new slot records", ingested)
+
         # --- Fire schedule-changed events for imminent slot changes ---
         prev_slots = self._last_schedule or []
         detect_and_fire_schedule_changes(self.hass, prev_slots, slots_out, now)
@@ -489,6 +538,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
                 "consumption": _entity_diag(consumption_entity),
                 "weather": _entity_diag(weather_entity if weather_entity else None),
             },
+            "corrections": self._corrector.get_stats() if self._corrector else {},
             "inputs": {
                 "initial_soc_pct": round(initial_soc_pct, 2),
                 "n_slots": n_slots,
@@ -969,6 +1019,14 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             await self._learner.async_train_from_recorder(self.hass, consumption_entity)
             if self._learner_storage:
                 await self._learner_storage.async_save(self._learner.to_storage())
+
+    async def async_reset_corrections(self) -> None:
+        """Reset all learned forecast correction factors back to defaults."""
+        if self._corrector:
+            self._corrector.reset()
+            if self._corrector_storage:
+                await self._corrector_storage.async_save(self._corrector.to_storage())
+            _LOGGER.info("Forecast corrections reset to defaults")
 
     async def async_shutdown(self) -> None:
         """Clean up listeners and scheduled polls on unload."""

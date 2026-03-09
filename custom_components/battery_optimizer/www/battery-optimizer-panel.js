@@ -702,6 +702,7 @@ class BatteryOptimizerPanel extends HTMLElement {
       <div class="tabs" id="tabs">
         <div class="tab active" data-tab="schedule">Schedule</div>
         <div class="tab" data-tab="analytics">Analytics</div>
+        <div class="tab" data-tab="history">History</div>
         <div class="tab" data-tab="config">Config</div>
         <div class="tab" data-tab="debug">Debug</div>
       </div>
@@ -741,6 +742,7 @@ class BatteryOptimizerPanel extends HTMLElement {
     if (!content) return;
     if (this._activeTab === 'schedule')       content.innerHTML = this._renderSchedule();
     else if (this._activeTab === 'analytics') content.innerHTML = this._renderAnalytics();
+    else if (this._activeTab === 'history')   content.innerHTML = this._renderHistory();
     else if (this._activeTab === 'config')    content.innerHTML = this._renderConfig();
     else                                      content.innerHTML = this._renderDebug();
     this._bindContentEvents();
@@ -1439,6 +1441,338 @@ class BatteryOptimizerPanel extends HTMLElement {
       </div>`;
   }
 
+  // ── History tab ──────────────────────────────────────────────────────────
+
+  _renderHistory() {
+    const histSlots = this._slots().filter(s => s.is_historical);
+    const corrections = (this._st(ENTITIES.health)?.attributes?.diagnostics || {}).corrections || {};
+
+    return `
+      <div class="card">
+        <p class="card-title">Planned vs actual SOC</p>
+        ${this._renderHistorySOCChart(histSlots)}
+      </div>
+
+      <div class="card">
+        <p class="card-title">Solar: actual vs predicted</p>
+        ${this._renderHistorySolarChart(histSlots)}
+      </div>
+
+      <div class="card">
+        <p class="card-title">Load: actual vs predicted</p>
+        ${this._renderHistoryLoadChart(histSlots)}
+      </div>
+
+      <div class="card">
+        <p class="card-title">Correction factors (24-hour heatmap)</p>
+        ${this._renderCorrectionHeatmap(corrections)}
+      </div>
+
+      <div class="card">
+        <p class="card-title">Forecast corrections</p>
+        ${this._renderCorrectionsCard(corrections)}
+      </div>
+    `;
+  }
+
+  _renderHistorySOCChart(histSlots) {
+    if (histSlots.length === 0) {
+      return '<p class="no-data">No historical data yet — builds up after the first slot boundary passes.</p>';
+    }
+
+    const W = 600, H = 220;
+    const padL = 38, padR = 8, padT = 10, padB = 28;
+    const cW = W - padL - padR;
+    const cH = H - padT - padB;
+
+    const times  = histSlots.map(s => new Date(s.start).getTime());
+    const minT   = times[0];
+    const maxT   = times[times.length - 1];
+    const tRange = maxT - minT || 1;
+
+    const toX = t   => padL + ((t - minT) / tRange) * cW;
+    const toY = soc => padT + cH - Math.min(1, Math.max(0, soc / 100)) * cH;
+
+    const plannedPts = histSlots
+      .filter(s => s.projected_soc != null)
+      .map(s => ({ x: toX(new Date(s.start).getTime()), y: toY(s.projected_soc) }));
+
+    const actualPts = histSlots
+      .filter(s => s.actual_soc != null)
+      .map(s => ({ x: toX(new Date(s.start).getTime()), y: toY(s.actual_soc) }));
+
+    const gridY = [25, 50, 75].map(pct => {
+      const y = toY(pct).toFixed(1);
+      return `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--divider-color)" stroke-width="1" stroke-dasharray="3,3"/>
+              <text x="${padL - 4}" y="${(parseFloat(y) + 4).toFixed(1)}" font-size="9" fill="var(--secondary-text-color)" text-anchor="end">${pct}</text>`;
+    }).join('');
+
+    const xLabels = histSlots.filter((s, i) => i % Math.max(1, Math.floor(histSlots.length / 6)) === 0).map(s => {
+      const x = toX(new Date(s.start).getTime()).toFixed(1);
+      const d = new Date(s.start);
+      const label = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      return `<text x="${x}" y="${H - 4}" font-size="9" fill="var(--secondary-text-color)" text-anchor="middle">${label}</text>`;
+    }).join('');
+
+    const plannedLine = this._svgLine(plannedPts, { W, H, padL, padR, padT, padB, lineColor: '#2196f3', areaColor: 'rgba(33,150,243,0.08)', strokeWidth: 2 });
+    const actualLine  = this._svgLine(actualPts,  { W, H, padL, padR, padT, padB, lineColor: '#ff9800', areaColor: 'transparent', strokeWidth: 2 });
+
+    const socPairs = histSlots.filter(s => s.actual_soc != null && s.projected_soc != null);
+    const mae = socPairs.length > 0
+      ? (socPairs.reduce((a, s) => a + Math.abs(s.actual_soc - s.projected_soc), 0) / socPairs.length).toFixed(1)
+      : null;
+    const maeTip = mae != null ? `<p style="font-size:11px;color:var(--secondary-text-color);margin:4px 0 0">MAE: \u00b1${mae} pp over ${socPairs.length} slots</p>` : '';
+
+    return `
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block">
+        ${gridY}
+        <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + cH}" stroke="var(--divider-color)" stroke-width="1"/>
+        <line x1="${padL}" y1="${padT + cH}" x2="${W - padR}" y2="${padT + cH}" stroke="var(--divider-color)" stroke-width="1"/>
+        ${plannedLine}${actualLine}${xLabels}
+        <circle cx="${padL + 4}" cy="${H - 16}" r="4" fill="#2196f3"/>
+        <text x="${padL + 12}" y="${H - 12}" font-size="9" fill="#2196f3">Planned</text>
+        <circle cx="${padL + 58}" cy="${H - 16}" r="4" fill="#ff9800"/>
+        <text x="${padL + 66}" y="${H - 12}" font-size="9" fill="#ff9800">Actual</text>
+      </svg>${maeTip}`;
+  }
+
+  _renderHistorySolarChart(histSlots) {
+    const withSolar = histSlots.filter(s => s.expected_solar_kwh != null && s.expected_solar_kwh > 0);
+    const withActual = histSlots.filter(s => s.actual_solar_kwh != null || s.actual_generation_kwh != null);
+
+    if (withSolar.length === 0) {
+      return '<p class="no-data">No solar forecast data in history yet.</p>';
+    }
+
+    const W = 600, H = 160;
+    const padL = 38, padR = 8, padT = 10, padB = 28;
+    const cW = W - padL - padR;
+    const cH = H - padT - padB;
+
+    const times = histSlots.map(s => new Date(s.start).getTime());
+    const minT  = times[0];
+    const maxT  = times[times.length - 1];
+    const tRange = maxT - minT || 1;
+
+    const allVals = [
+      ...histSlots.map(s => s.expected_solar_kwh || 0),
+      ...histSlots.map(s => s.actual_generation_kwh ?? s.actual_solar_kwh ?? 0),
+    ];
+    const maxVal = Math.max(...allVals, 0.1);
+
+    const toX = t   => padL + ((t - minT) / tRange) * cW;
+    const toY = kwh => padT + cH - Math.min(1, Math.max(0, kwh / maxVal)) * cH;
+
+    const plannedPts = histSlots
+      .filter(s => s.expected_solar_kwh != null)
+      .map(s => ({ x: toX(new Date(s.start).getTime()), y: toY(s.expected_solar_kwh) }));
+
+    const actualPts = histSlots
+      .filter(s => s.actual_generation_kwh != null || s.actual_solar_kwh != null)
+      .map(s => ({ x: toX(new Date(s.start).getTime()), y: toY(s.actual_generation_kwh ?? s.actual_solar_kwh) }));
+
+    const gridY = [0.25, 0.5, 0.75, 1.0].map(frac => {
+      const y = (padT + cH - frac * cH).toFixed(1);
+      return `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--divider-color)" stroke-width="1" stroke-dasharray="3,3"/>
+              <text x="${padL - 4}" y="${(parseFloat(y) + 4).toFixed(1)}" font-size="9" fill="var(--secondary-text-color)" text-anchor="end">${(frac * maxVal).toFixed(2)}</text>`;
+    }).join('');
+
+    const xLabels = histSlots.filter((s, i) => i % Math.max(1, Math.floor(histSlots.length / 6)) === 0).map(s => {
+      const x = toX(new Date(s.start).getTime()).toFixed(1);
+      const label = new Date(s.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      return `<text x="${x}" y="${H - 4}" font-size="9" fill="var(--secondary-text-color)" text-anchor="middle">${label}</text>`;
+    }).join('');
+
+    const plannedLine = this._svgLine(plannedPts, { W, H, padL, padR, padT, padB, lineColor: '#2196f3', areaColor: 'rgba(33,150,243,0.08)', strokeWidth: 2 });
+    const actualLine  = actualPts.length > 0
+      ? this._svgLine(actualPts, { W, H, padL, padR, padT, padB, lineColor: '#ffa726', areaColor: 'transparent', strokeWidth: 2 })
+      : `<text x="${W / 2}" y="${padT + cH / 2}" font-size="10" fill="var(--secondary-text-color)" text-anchor="middle">Configure a solar generation meter in Config for actual tracking</text>`;
+
+    return `
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block">
+        ${gridY}
+        <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + cH}" stroke="var(--divider-color)" stroke-width="1"/>
+        <line x1="${padL}" y1="${padT + cH}" x2="${W - padR}" y2="${padT + cH}" stroke="var(--divider-color)" stroke-width="1"/>
+        ${plannedLine}${actualLine}${xLabels}
+        <circle cx="${padL + 4}" cy="${H - 16}" r="4" fill="#2196f3"/>
+        <text x="${padL + 12}" y="${H - 12}" font-size="9" fill="#2196f3">Predicted</text>
+        ${actualPts.length > 0 ? `<circle cx="${padL + 62}" cy="${H - 16}" r="4" fill="#ffa726"/><text x="${padL + 70}" y="${H - 12}" font-size="9" fill="#ffa726">Actual</text>` : ''}
+      </svg>
+      <p style="font-size:11px;color:var(--secondary-text-color);margin:4px 0 0">kWh per slot</p>`;
+  }
+
+  _renderHistoryLoadChart(histSlots) {
+    const withLoad = histSlots.filter(s => s.expected_consumption_kwh != null && s.expected_consumption_kwh > 0);
+    if (withLoad.length === 0) {
+      return '<p class="no-data">No consumption data in history yet.</p>';
+    }
+
+    const W = 600, H = 160;
+    const padL = 38, padR = 8, padT = 10, padB = 28;
+    const cW = W - padL - padR;
+    const cH = H - padT - padB;
+
+    const times  = histSlots.map(s => new Date(s.start).getTime());
+    const minT   = times[0];
+    const maxT   = times[times.length - 1];
+    const tRange = maxT - minT || 1;
+
+    const allVals = [
+      ...histSlots.map(s => s.expected_consumption_kwh || 0),
+      ...histSlots.map(s => s.actual_consumption_kwh   || 0),
+    ];
+    const maxVal = Math.max(...allVals, 0.1);
+
+    const toX = t   => padL + ((t - minT) / tRange) * cW;
+    const toY = kwh => padT + cH - Math.min(1, Math.max(0, kwh / maxVal)) * cH;
+
+    const plannedPts = histSlots
+      .filter(s => s.expected_consumption_kwh != null)
+      .map(s => ({ x: toX(new Date(s.start).getTime()), y: toY(s.expected_consumption_kwh) }));
+
+    const actualPts = histSlots
+      .filter(s => s.actual_consumption_kwh != null)
+      .map(s => ({ x: toX(new Date(s.start).getTime()), y: toY(s.actual_consumption_kwh) }));
+
+    const gridY = [0.25, 0.5, 0.75, 1.0].map(frac => {
+      const y = (padT + cH - frac * cH).toFixed(1);
+      return `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--divider-color)" stroke-width="1" stroke-dasharray="3,3"/>
+              <text x="${padL - 4}" y="${(parseFloat(y) + 4).toFixed(1)}" font-size="9" fill="var(--secondary-text-color)" text-anchor="end">${(frac * maxVal).toFixed(2)}</text>`;
+    }).join('');
+
+    const xLabels = histSlots.filter((s, i) => i % Math.max(1, Math.floor(histSlots.length / 6)) === 0).map(s => {
+      const x = toX(new Date(s.start).getTime()).toFixed(1);
+      const label = new Date(s.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      return `<text x="${x}" y="${H - 4}" font-size="9" fill="var(--secondary-text-color)" text-anchor="middle">${label}</text>`;
+    }).join('');
+
+    const plannedLine = this._svgLine(plannedPts, { W, H, padL, padR, padT, padB, lineColor: '#2196f3', areaColor: 'rgba(33,150,243,0.08)', strokeWidth: 2 });
+    const actualLine  = actualPts.length > 0
+      ? this._svgLine(actualPts, { W, H, padL, padR, padT, padB, lineColor: '#ef5350', areaColor: 'transparent', strokeWidth: 2 })
+      : '';
+
+    return `
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block">
+        ${gridY}
+        <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + cH}" stroke="var(--divider-color)" stroke-width="1"/>
+        <line x1="${padL}" y1="${padT + cH}" x2="${W - padR}" y2="${padT + cH}" stroke="var(--divider-color)" stroke-width="1"/>
+        ${plannedLine}${actualLine}${xLabels}
+        <circle cx="${padL + 4}" cy="${H - 16}" r="4" fill="#2196f3"/>
+        <text x="${padL + 12}" y="${H - 12}" font-size="9" fill="#2196f3">Predicted</text>
+        ${actualPts.length > 0 ? `<circle cx="${padL + 62}" cy="${H - 16}" r="4" fill="#ef5350"/><text x="${padL + 70}" y="${H - 12}" font-size="9" fill="#ef5350">Actual</text>` : ''}
+      </svg>
+      <p style="font-size:11px;color:var(--secondary-text-color);margin:4px 0 0">kWh per slot</p>`;
+  }
+
+  _renderCorrectionHeatmap(corrections) {
+    if (!corrections || !corrections.solar_ratios) {
+      return '<p class="no-data">No correction data yet — builds up after several slot boundaries pass.</p>';
+    }
+
+    const minObs      = corrections.min_obs_threshold || 5;
+    const solarRatios = corrections.solar_ratios    || Array(24).fill(1.0);
+    const solarCounts = corrections.solar_counts    || Array(24).fill(0);
+    const loadRatios  = corrections.load_ratios_weekday || Array(24).fill(1.0);
+    const loadCounts  = corrections.load_counts_weekday || Array(24).fill(0);
+
+    const W = 600, cellH = 30, labelW = 60, cellW = (W - labelW) / 24;
+
+    const ratioColor = r => {
+      // < 1 (overshoots) → red, = 1 → grey, > 1 (undershoots) → green
+      if (r < 1) {
+        const t = Math.min(1, (1 - r) / 0.5);
+        const g = Math.round(165 * (1 - t));
+        return `rgb(220,${g},${g})`;
+      } else {
+        const t = Math.min(1, (r - 1) / 0.5);
+        const r2 = Math.round(165 * (1 - t));
+        return `rgb(${r2},220,${r2})`;
+      }
+    };
+
+    const makeRow = (label, ratios, counts) => {
+      const cells = Array.from({ length: 24 }, (_, h) => {
+        const x = labelW + h * cellW;
+        const count = counts[h] || 0;
+        const ratio = ratios[h] || 1.0;
+        const active = count >= minObs;
+        const fill   = active ? ratioColor(ratio) : '#555';
+        const txt    = active ? ratio.toFixed(2) : '?';
+        const txtCol = active ? '#000' : '#aaa';
+        const tip    = active ? `Hour ${h}:00 — ratio ${ratio.toFixed(3)} (${count} obs)` : `Hour ${h}:00 — fewer than ${minObs} observations`;
+        return `<g><title>${tip}</title>
+          <rect x="${x.toFixed(1)}" y="0" width="${cellW.toFixed(1)}" height="${cellH}" fill="${fill}" rx="2" stroke="var(--card-background-color)" stroke-width="1"/>
+          ${cellW > 18 ? `<text x="${(x + cellW / 2).toFixed(1)}" y="${cellH / 2 + 4}" font-size="8" text-anchor="middle" fill="${txtCol}">${txt}</text>` : ''}
+        </g>`;
+      }).join('');
+
+      const hourLabels = [0, 6, 12, 18, 23].map(h => {
+        const x = labelW + h * cellW + cellW / 2;
+        return `<text x="${x.toFixed(1)}" y="${cellH + 12}" font-size="8" text-anchor="middle" fill="var(--secondary-text-color)">${String(h).padStart(2, '0')}h</text>`;
+      }).join('');
+
+      return `<g transform="translate(0,0)">
+        <text x="${labelW - 4}" y="${cellH / 2 + 4}" font-size="9" text-anchor="end" fill="var(--secondary-text-color)">${label}</text>
+        ${cells}
+        ${hourLabels}
+      </g>`;
+    };
+
+    const svgH = cellH * 2 + 28;
+    return `
+      <svg viewBox="0 0 ${W} ${svgH}" style="width:100%;display:block">
+        ${makeRow('Solar', solarRatios, solarCounts)}
+        <g transform="translate(0,${cellH + 2})">
+          ${makeRow('Load', loadRatios, loadCounts).replace(/<g transform="translate\(0,0\)">/, '<g>')}
+        </g>
+      </svg>
+      <p style="font-size:11px;color:var(--secondary-text-color);margin:6px 0 0">&lt; 1.0 = forecast overshoots &nbsp;|&nbsp; &gt; 1.0 = forecast undershoots &nbsp;|&nbsp; grey = learning (fewer than ${minObs} obs)</p>`;
+  }
+
+  _renderCorrectionsCard(corrections) {
+    const active = corrections.active;
+    const pill = active === true  ? '<span class="status-pill pill-ok">Active</span>'
+               : active === false ? '<span class="status-pill pill-warn">Learning</span>'
+               :                    '<span class="status-pill pill-error">No data</span>';
+
+    const fmt = v => v != null ? v.toFixed(3) : '—';
+    const fmtPct = v => v != null ? `${((v - 1) * 100).toFixed(1)}%` : null;
+
+    const solarRatio = corrections.solar_mean_ratio;
+    const solarNote  = solarRatio != null
+      ? (solarRatio < 1 ? `overshoots by ${fmtPct(1/solarRatio)}` : `undershoots by ${fmtPct(solarRatio)}`)
+      : null;
+
+    const wdRatio = corrections.load_mean_ratio_weekday;
+    const weRatio = corrections.load_mean_ratio_weekend;
+    const drift   = corrections.soc_drift_pp;
+
+    const rows = [
+      ['Solar ratio',         solarRatio != null ? `${fmt(solarRatio)}${solarNote ? ` — forecast ${solarNote}` : ''}` : '—'],
+      ['Load ratio (weekday)',wdRatio != null ? fmt(wdRatio) : '—'],
+      ['Load ratio (weekend)',weRatio != null ? fmt(weRatio) : '—'],
+      ['SOC drift',           drift   != null ? `${drift > 0 ? '+' : ''}${drift.toFixed(1)} pp` : '—'],
+      ['Solar observations',  corrections.solar_obs_total != null ? String(corrections.solar_obs_total) : '—'],
+      ['Load observations',   corrections.load_obs_total  != null ? String(corrections.load_obs_total)  : '—'],
+    ];
+
+    const driftNote = drift != null
+      ? (Math.abs(drift) > 3
+          ? `<p style="font-size:11px;color:#ff9800;margin:0 0 8px">SOC drift ${drift > 0 ? '+' : ''}${drift.toFixed(1)} pp — battery charges ${drift > 0 ? 'faster' : 'slower'} than projected</p>`
+          : '')
+      : '';
+
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span style="font-size:13px;font-weight:500">Status</span>${pill}
+      </div>
+      ${driftNote}
+      ${rows.map(([k, v]) => `<div class="stat-row"><span class="stat-label">${k}</span><span class="stat-value">${v}</span></div>`).join('')}
+      <div class="btn-row" style="margin-top:12px">
+        <button class="btn-secondary" id="btn-reset-corrections">Reset corrections</button>
+      </div>`;
+  }
+
   // ── Config tab ───────────────────────────────────────────────────────────
 
   _renderConfig() {
@@ -1731,6 +2065,7 @@ class BatteryOptimizerPanel extends HTMLElement {
     bind('btn-recalc', () => this._callService('battery_optimizer', 'recalculate_now'));
     bind('btn-pause',  () => this._callService('battery_optimizer', isPaused ? 'resume' : 'pause'));
     bind('btn-retrain', () => this._callService('battery_optimizer', 'retrain_learner'));
+    bind('btn-reset-corrections', () => this._callService('battery_optimizer', 'reset_corrections'));
 
     bind('btn-open-config', () => {
       window.history.pushState(null, '', '/config/integrations');

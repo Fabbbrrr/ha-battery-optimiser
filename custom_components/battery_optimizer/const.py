@@ -104,10 +104,14 @@ SENSOR_SCHEDULE = "schedule"
 SENSOR_HEALTH = "health"
 SENSOR_STATE = "state"
 
+# Solar generation meter (optional — separate from forecast entity)
+CONF_SOLAR_GENERATION_ENTITY = "solar_generation_entity"
+
 # Storage keys
 STORAGE_KEY_LEARNED_PROFILES = f"{DOMAIN}.learned_profiles"
 STORAGE_KEY_PLANNED_VS_ACTUAL = f"{DOMAIN}.planned_vs_actual"
 STORAGE_KEY_OPTIMIZER_STATE = f"{DOMAIN}.optimizer_state"
+STORAGE_KEY_FORECAST_CORRECTIONS = f"{DOMAIN}.forecast_corrections"
 STORAGE_VERSION = 1
 
 # Events
@@ -120,6 +124,7 @@ SERVICE_OVERRIDE_SLOT = "override_slot"
 SERVICE_PAUSE = "pause"
 SERVICE_RESUME = "resume"
 SERVICE_RETRAIN_LEARNER = "retrain_learner"
+SERVICE_RESET_CORRECTIONS = "reset_corrections"
 
 # Slot attribute keys
 ATTR_SLOTS = "slots"
