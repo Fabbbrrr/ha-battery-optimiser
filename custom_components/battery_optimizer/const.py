@@ -16,6 +16,7 @@ CONF_MAX_EXPORT_LIMIT_ENTITY = "max_export_limit_entity"
 CONF_SOLAR_FORECAST_ENTITY = "solar_forecast_entity"
 CONF_SOLAR_FORECAST_FORMAT = "solar_forecast_format"
 CONF_SOLAR_TOTAL_KWH_ENTITY = "solar_total_kwh_entity"  # generic fallback
+CONF_SOLAR_FORECAST_TOMORROW_ENTITY = "solar_forecast_tomorrow_entity"  # separate sensor for tomorrow's kWh
 
 # Forecast formats
 FORECAST_FORMAT_AUTO = "auto"

@@ -17,6 +17,7 @@ from .const import (
     CONF_RECALCULATION_INTERVAL_MINUTES,
     CONF_SOLAR_FORECAST_ENTITY,
     CONF_SOLAR_FORECAST_FORMAT,
+    CONF_SOLAR_FORECAST_TOMORROW_ENTITY,
     CONF_BATTERY_SOC_ENTITY,
     CONF_BATTERY_CAPACITY_KWH,
     CONF_MIN_SOC_FLOOR_PERCENT,
@@ -54,7 +55,7 @@ from .const import (
 from .bridge_calculator import compute_bridge_point
 from .consumption_learner import ConsumptionLearner
 from .events import detect_and_fire_schedule_changes
-from .forecast_parser import parse_forecast
+from .forecast_parser import parse_forecast, parse_extra_day_forecast
 from .optimizer import (
     OptimizationResult,
     async_optimize,
@@ -330,6 +331,20 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
                     forecast_format,
                     sum(solar_kwh),
                 )
+
+        # --- Optional extra solar sensor for tomorrow's forecast ---
+        tomorrow_entity = merged.get(CONF_SOLAR_FORECAST_TOMORROW_ENTITY)
+        if tomorrow_entity:
+            extra = parse_extra_day_forecast(self.hass, tomorrow_entity, now, slot_minutes, n_slots)
+            solar_kwh = [a + b for a, b in zip(solar_kwh, extra)]
+            n_extra = sum(1 for v in extra if v > 0)
+            if n_extra > 0:
+                _LOGGER.info(
+                    "Solar tomorrow: +%d non-zero slots from %s (total +%.2f kWh)",
+                    n_extra, tomorrow_entity, sum(extra),
+                )
+            else:
+                _LOGGER.warning("Solar tomorrow entity %s returned all-zero slots", tomorrow_entity)
 
         # --- Load profile from learned consumption ---
         load_kwh = self._learner.get_load_profile(now, n_slots, slot_minutes)

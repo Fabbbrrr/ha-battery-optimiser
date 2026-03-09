@@ -29,6 +29,7 @@ from .const import (
     CONF_SOLAR_FORECAST_ENTITY,
     CONF_SOLAR_FORECAST_FORMAT,
     CONF_SOLAR_TOTAL_KWH_ENTITY,
+    CONF_SOLAR_FORECAST_TOMORROW_ENTITY,
     FORECAST_FORMAT_AUTO,
     FORECAST_FORMAT_FORECAST_SOLAR,
     FORECAST_FORMAT_SOLCAST,
@@ -469,6 +470,7 @@ class BatteryOptimizerOptionsFlow(config_entries.OptionsFlow):
         schema = vol.Schema({
             vol.Optional(CONF_BATTERY_SOC_ENTITY, default=current.get(CONF_BATTERY_SOC_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(CONF_SOLAR_FORECAST_ENTITY, default=current.get(CONF_SOLAR_FORECAST_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Optional(CONF_SOLAR_FORECAST_TOMORROW_ENTITY, default=current.get(CONF_SOLAR_FORECAST_TOMORROW_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(CONF_CONSUMPTION_ENTITY, default=current.get(CONF_CONSUMPTION_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(CONF_WEATHER_ENTITY, default=current.get(CONF_WEATHER_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="weather")),
             vol.Optional(CONF_MAX_EXPORT_LIMIT_ENTITY, default=current.get(CONF_MAX_EXPORT_LIMIT_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
