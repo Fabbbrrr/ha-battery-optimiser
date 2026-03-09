@@ -740,10 +740,11 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
 
         # --- Daily solar totals (grouped by calendar day, not by slot-index block) ---
         slot_delta_td = timedelta(minutes=slot_minutes)
-        today_date = now.date()
+        _now = dt_util.now()
+        today_date = _now.date()
         daily_solar_acc = [0.0, 0.0, 0.0]
         for i, kwh in enumerate(solar_kwh):
-            slot_date = (now + slot_delta_td * i).date()
+            slot_date = (_now + slot_delta_td * i).date()
             day_offset = (slot_date - today_date).days
             if 0 <= day_offset <= 2:
                 daily_solar_acc[day_offset] += kwh
