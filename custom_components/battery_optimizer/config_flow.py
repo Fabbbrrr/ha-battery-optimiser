@@ -367,7 +367,7 @@ class BatteryOptimizerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional(CONF_MAX_EXPORT_LIMIT_KW, default=DEFAULT_MAX_EXPORT_LIMIT_KW): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0.1, max=50, step=0.1, unit_of_measurement="kW", mode="box")
             ),
-            vol.Optional(CONF_MAX_EXPORT_LIMIT_ENTITY): selector.EntitySelector(
+            vol.Optional(CONF_MAX_EXPORT_LIMIT_ENTITY, default=""): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
         })
