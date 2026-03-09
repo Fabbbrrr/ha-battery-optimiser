@@ -1,12 +1,10 @@
 /**
- * Battery Optimiser — Sidebar Panel v0.0.27
+ * Battery Optimiser — Sidebar Panel v0.0.32
  * Registered automatically by the integration. No manual configuration needed.
  * Entities are auto-discovered from hass.states.
  *
- * Changes in v0.0.27:
- * - Fixed log fetcher to handle modern HA /api/logs JSON format
- * - Added fallback to error_log for older HA versions (2024.x+)
- * - Improved syntax highlighting for ERROR/WARNING/INFO levels
+ * Changes in v0.0.32:
+ * - Fixed Fetch Logs button: use fetchWithAuth instead of callApi for plain-text /api/error_log
  */
 
 const PREFIX = 'sensor.battery_optimiser';
@@ -2056,7 +2054,7 @@ class BatteryOptimizerPanel extends HTMLElement {
       <div class="card">
         <p class="card-title">HA log viewer</p>
         <p style="font-size:12px;color:var(--secondary-text-color);margin:0 0 10px">
-          Fetches <code>/api/error_log</code> and filters for <code>battery_optimis</code> entries.
+          Fetches <code>/api/error_log</code> and filters for <code>battery_optimis</code> entries. Shows last 100 matching lines.
         </p>
         <div class="btn-row" style="margin-top:0">
           <button class="btn-secondary" id="btn-fetch-logs">Fetch Logs</button>
@@ -2133,31 +2131,11 @@ class BatteryOptimizerPanel extends HTMLElement {
       pre.textContent = 'Loading...';
 
       try {
-        // Try modern /api/logs endpoint first (returns JSON with log_lines array)
-        let logData;
-        try {
-          logData = await this._hass.callApi('GET', 'logs');
-        } catch (e1) {
-          // Fallback to error_log for older HA versions
-          logData = await this._hass.callApi('GET', 'error_log');
-        }
-
-        // Parse response - handle both JSON and plain text formats
-        let lines;
-        if (typeof logData === 'object' && Array.isArray(logData.log_lines)) {
-          // Modern HA: /api/logs returns { log_lines: [...] }
-          lines = logData.log_lines || [];
-        } else if (typeof logData === 'string') {
-          // Plain text format or older error_log
-          lines = logData.split('\n').filter(l => l.trim());
-        } else if (Array.isArray(logData)) {
-          // Direct array response
-          lines = logData;
-        } else {
-          // Try to extract from various JSON structures
-          const str = JSON.stringify(logData);
-          lines = str.split('\n').filter(l => l.trim());
-        }
+        // /api/error_log returns plain text — use fetchWithAuth to avoid JSON parse errors
+        const resp = await this._hass.fetchWithAuth('/api/error_log');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const text = await resp.text();
+        const lines = text.split('\n').filter(l => l.trim());
 
         // Filter for battery_optimizer entries (case-insensitive)
         const filteredLines = lines.filter(l => 
