@@ -1981,13 +1981,18 @@ class BatteryOptimizerPanel extends HTMLElement {
         <span class="stat-value"><code>${this._escHtml(String(v))}</code></span>
       </div>`).join('');
 
+    const fallbackLabels = {
+      conservative_hold: 'Conservative hold (recommended)',
+      last_known_good:   'Last known good schedule',
+      error_state:       'Error state (raise error on failure)',
+    };
     const cfgRows = Object.entries({
       'Free import start':   cfg.free_import_start  || 'not set',
       'Free import end':     cfg.free_import_end    || 'not set',
       'Export bonus start':  cfg.export_bonus_start || 'not set',
       'Export bonus end':    cfg.export_bonus_end   || 'not set',
       'Bridge fallback':     cfg.bridge_fallback_time || '—',
-      'Fallback mode':       cfg.fallback_mode      || '—',
+      'Fallback mode':       cfg.fallback_mode ? (fallbackLabels[cfg.fallback_mode] || cfg.fallback_mode) : '—',
     }).map(([k, v]) => `
       <div class="stat-row">
         <span class="stat-label">${k}</span>
