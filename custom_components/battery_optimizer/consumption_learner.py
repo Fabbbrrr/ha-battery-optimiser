@@ -140,7 +140,12 @@ class ConsumptionLearner:
         """Restore learned state from .storage/ JSON."""
         if not stored:
             return
-        self._profiles = stored.get("profiles", {})
+        raw_profiles = stored.get("profiles", {})
+        # JSON keys are always strings; convert hour keys back to int
+        self._profiles = {
+            day_type: {int(h): v for h, v in hours.items()}
+            for day_type, hours in raw_profiles.items()
+        }
         self._temp_coefficients = stored.get("temp_coefficients", {})
         self._observations = stored.get("observations", [])
         self._is_trained = bool(self._profiles)
