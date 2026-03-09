@@ -1017,48 +1017,67 @@ class BatteryOptimizerPanel extends HTMLElement {
     const hasCons  = slots.some(s => s.expected_consumption_kwh != null && s.expected_consumption_kwh > 0);
     if (!hasSolar && !hasCons) return '';
 
-    const W = 600, H = 70;
-    const padL = 38, padR = 8;
+    const W = 600, H = 130;
+    const padL = 38, padR = 8, padT = 10, padB = 22;
     const cW = W - padL - padR;
-    const rowH = 24, gap = 4, padT = 5;
+    const cH = H - padT - padB;
 
-    const times = slots.map(s => new Date(s.start).getTime());
-    const minT  = times[0];
-    const maxT  = times[times.length - 1];
-    const tRange = maxT - minT || 1;
+    const times    = slots.map(s => new Date(s.start).getTime());
+    const minT     = times[0];
+    const maxT     = times[times.length - 1];
+    const tRange   = maxT - minT || 1;
 
     const solarVals = slots.map(s => s.expected_solar_kwh || 0);
     const consVals  = slots.map(s => s.expected_consumption_kwh || 0);
-    const maxVal    = Math.max(...solarVals, ...consVals, 0.001);
+    // Scale each series independently so low values still show variation
+    const solarMax = Math.max(...solarVals, 0.1);
+    const consMax  = Math.max(...consVals,  0.1);
+    const sharedMax = Math.max(solarMax, consMax);
 
-    // Bar width: use half the average slot width
-    const avgGap = cW / Math.max(slots.length - 1, 1);
-    const barW = Math.max(2, Math.min(avgGap * 0.6, 30));
+    const toX   = t   => padL + ((t - minT) / tRange) * cW;
+    const toY   = val => padT + cH - Math.min(1, val / sharedMax) * cH;
 
-    const toX = t => padL + ((t - minT) / tRange) * cW;
+    const solarPoints = slots.map((s, i) => ({
+      x: toX(times[i]),
+      y: toY(solarVals[i]),
+      tip: `Solar: ${solarVals[i].toFixed(2)} kWh`,
+    }));
+    const consPoints = slots.map((s, i) => ({
+      x: toX(times[i]),
+      y: toY(consVals[i]),
+      tip: `Load: ${consVals[i].toFixed(2)} kWh`,
+    }));
 
-    const solarBars = slots.map((s, i) => {
-      const x = toX(times[i]);
-      const h = (solarVals[i] / maxVal) * rowH;
-      return h > 0 ? `<rect x="${(x - barW / 2).toFixed(1)}" y="${(padT + rowH - h).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="#4caf50" opacity="0.85">
-        <title>Solar: ${solarVals[i].toFixed(2)} kWh</title></rect>` : '';
+    const solarLine = hasSolar ? this._svgLine(solarPoints, {
+      W, H, padL, padR, padT, padB,
+      lineColor: '#43a047', areaColor: 'rgba(67,160,71,0.15)', strokeWidth: 2,
+    }) : '';
+    const consLine = hasCons ? this._svgLine(consPoints, {
+      W, H, padL, padR, padT, padB,
+      lineColor: '#ef5350', areaColor: 'rgba(239,83,80,0.10)', strokeWidth: 2,
+    }) : '';
+
+    // Y gridlines at 50% and 100% of sharedMax
+    const gridY = [0.5, 1.0].map(frac => {
+      const y   = (padT + cH - frac * cH).toFixed(1);
+      const val = (frac * sharedMax).toFixed(2);
+      return `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="var(--divider-color)" stroke-width="1" stroke-dasharray="3,3"/>
+              <text x="${padL - 4}" y="${(parseFloat(y) + 4).toFixed(1)}" font-size="9" fill="var(--secondary-text-color)" text-anchor="end">${val}</text>`;
     }).join('');
 
-    const consBars = slots.map((s, i) => {
-      const x = toX(times[i]);
-      const h = (consVals[i] / maxVal) * rowH;
-      const y2 = padT + rowH + gap;
-      return h > 0 ? `<rect x="${(x - barW / 2).toFixed(1)}" y="${(y2 + rowH - h).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="#ef5350" opacity="0.75">
-        <title>Load: ${consVals[i].toFixed(2)} kWh</title></rect>` : '';
-    }).join('');
-
-    const legendY = padT + rowH * 2 + gap + 14;
+    const legendY = H - 4;
     return `
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;margin-top:2px">
-        ${solarBars}
-        ${consBars}
-        <text x="${padL}" y="${legendY}" font-size="9" fill="#4caf50">&#9651; Solar</text>
-        <text x="${padL + 46}" y="${legendY}" font-size="9" fill="#ef5350">&#9661; Load</text>
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;margin-top:4px;overflow:visible">
+        ${gridY}
+        <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + cH}" stroke="var(--divider-color)" stroke-width="1"/>
+        <line x1="${padL}" y1="${padT + cH}" x2="${W - padR}" y2="${padT + cH}" stroke="var(--divider-color)" stroke-width="1"/>
+        <text x="${padL - 4}" y="${(padT + cH + 4).toFixed(1)}" font-size="9" fill="var(--secondary-text-color)" text-anchor="end">0</text>
+        ${solarLine}
+        ${consLine}
+        <circle cx="${padL + 5}" cy="${legendY - 3}" r="3.5" fill="#43a047"/>
+        <text x="${padL + 13}" y="${legendY}" font-size="9" fill="#43a047">Solar (kWh)</text>
+        <circle cx="${padL + 80}" cy="${legendY - 3}" r="3.5" fill="#ef5350"/>
+        <text x="${padL + 88}" y="${legendY}" font-size="9" fill="#ef5350">Load (kWh)</text>
       </svg>`;
   }
 
