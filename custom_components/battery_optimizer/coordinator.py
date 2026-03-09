@@ -738,14 +738,16 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         if health_score is not None and health_score < 0.5:
             reasoning.append(f"Low energy security score ({health_score:.0%}) — battery may not reach charge window")
 
-        # --- Daily solar totals ---
-        slots_per_day = (24 * 60) // slot_minutes
-        daily_solar = []
-        for day in range(3):
-            start_i = day * slots_per_day
-            end_i = start_i + slots_per_day
-            day_total = sum(solar_kwh[start_i:end_i]) if len(solar_kwh) > start_i else 0.0
-            daily_solar.append(round(day_total, 2))
+        # --- Daily solar totals (grouped by calendar day, not by slot-index block) ---
+        slot_delta_td = timedelta(minutes=slot_minutes)
+        today_date = now.date()
+        daily_solar_acc = [0.0, 0.0, 0.0]
+        for i, kwh in enumerate(solar_kwh):
+            slot_date = (now + slot_delta_td * i).date()
+            day_offset = (slot_date - today_date).days
+            if 0 <= day_offset <= 2:
+                daily_solar_acc[day_offset] += kwh
+        daily_solar = [round(v, 2) for v in daily_solar_acc]
 
         low_solar_threshold_kwh = 2.0
         days_low_solar = sum(1 for d in daily_solar if d < low_solar_threshold_kwh)
