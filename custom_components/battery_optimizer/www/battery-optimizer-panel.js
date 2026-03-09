@@ -1,7 +1,12 @@
 /**
- * Battery Optimiser — Sidebar Panel
+ * Battery Optimiser — Sidebar Panel v0.0.27
  * Registered automatically by the integration. No manual configuration needed.
  * Entities are auto-discovered from hass.states.
+ *
+ * Changes in v0.0.27:
+ * - Fixed log fetcher to handle modern HA /api/logs JSON format
+ * - Added fallback to error_log for older HA versions (2024.x+)
+ * - Improved syntax highlighting for ERROR/WARNING/INFO levels
  */
 
 const PREFIX = 'sensor.battery_optimiser';
@@ -2085,39 +2090,75 @@ class BatteryOptimizerPanel extends HTMLElement {
       });
     }
 
-    // Log viewer
-    bind('btn-fetch-logs', async () => {
+    // Log viewer - Helper function to fetch and format logs
+    const fetchLogs = async () => {
       const btn = root.getElementById('btn-fetch-logs');
       const pre = root.getElementById('log-pre');
       if (!btn || !pre) return;
+
       btn.disabled = true;
       btn.textContent = 'Fetching...';
       pre.style.display = 'block';
       pre.textContent = 'Loading...';
+
       try {
-        const logText = await this._hass.callApi('GET', 'error_log');
-        const lines = String(logText).split('\n')
-          .filter(l => l.includes('battery_optimis'));
-        const last100 = lines.slice(-100);
-        if (last100.length === 0) {
+        // Try modern /api/logs endpoint first (returns JSON with log_lines array)
+        let logData;
+        try {
+          logData = await this._hass.callApi('GET', 'logs');
+        } catch (e1) {
+          // Fallback to error_log for older HA versions
+          logData = await this._hass.callApi('GET', 'error_log');
+        }
+
+        // Parse response - handle both JSON and plain text formats
+        let lines;
+        if (typeof logData === 'object' && Array.isArray(logData.log_lines)) {
+          // Modern HA: /api/logs returns { log_lines: [...] }
+          lines = logData.log_lines || [];
+        } else if (typeof logData === 'string') {
+          // Plain text format or older error_log
+          lines = logData.split('\n').filter(l => l.trim());
+        } else if (Array.isArray(logData)) {
+          // Direct array response
+          lines = logData;
+        } else {
+          // Try to extract from various JSON structures
+          const str = JSON.stringify(logData);
+          lines = str.split('\n').filter(l => l.trim());
+        }
+
+        // Filter for battery_optimizer entries (case-insensitive)
+        const filteredLines = lines.filter(l => 
+          String(l).toLowerCase().includes('battery_optimis')
+        );
+
+        if (filteredLines.length === 0) {
           pre.innerHTML = '<span style="color:var(--secondary-text-color)">No battery_optimizer log entries found.</span>';
         } else {
+          const last100 = filteredLines.slice(-100);
           pre.innerHTML = last100.map(line => {
             let cls = 'log-debug';
-            if (line.includes('ERROR'))   cls = 'log-error';
-            else if (line.includes('WARNING')) cls = 'log-warn';
-            else if (line.includes('INFO'))    cls = 'log-info';
+            const str = String(line).toUpperCase();
+            if (str.includes('ERROR') || str.includes('EXCEPTION'))   cls = 'log-error';
+            else if (str.includes('WARNING') || str.includes('WARN')) cls = 'log-warn';
+            else if (str.includes('INFO'))    cls = 'log-info';
             return `<span class="${cls}">${this._escHtml(line)}</span>`;
           }).join('\n');
           pre.scrollTop = pre.scrollHeight;
         }
-        btn.textContent = `Refresh (${last100.length} lines)`;
+
+        btn.textContent = `Refresh (${filteredLines.length} lines)`;
       } catch (e) {
-        pre.innerHTML = `<span class="log-error">Error fetching logs: ${this._escHtml(e.message)}</span>`;
+        const errorMsg = e.message || String(e);
+        pre.innerHTML = `<span class="log-error">Error fetching logs: ${this._escHtml(errorMsg)}<br><small>Make sure the integration is loaded and HA has write permissions for log files.</small></span>`;
         btn.textContent = 'Fetch Logs';
       }
+
       btn.disabled = false;
-    });
+    };
+
+    bind('btn-fetch-logs', fetchLogs);
 
     bind('btn-copy-logs', () => {
       const pre = root.getElementById('log-pre');

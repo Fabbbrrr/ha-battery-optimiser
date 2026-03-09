@@ -1,0 +1,12 @@
+name: New MCP server
+version: 0.0.1
+schema: v1
+mcpServers:
+  - name: home-assistant
+    command: npx
+    args:
+      - "-y"
+      - "@coolver/home-assistant-mcp@latest"
+    env:
+      HA_AGENT_URL: "http://homeassistant.local:8099"
+      HA_AGENT_KEY: "gt1V1xKLsGkvoYOT3xi7GodjKhFcOOzQXDbAEgMoJY0"
