@@ -1629,6 +1629,15 @@ class BatteryOptimizerPanel extends HTMLElement {
       ? this._svgLine(actualPts, { W, H, padL, padR, padT, padB, lineColor: '#ffa726', areaColor: 'transparent', strokeWidth: 2 })
       : `<text x="${W / 2}" y="${padT + cH / 2}" font-size="10" fill="var(--secondary-text-color)" text-anchor="middle">Configure a solar generation meter in Config for actual tracking</text>`;
 
+    const solarVals = histSlots.map(s => s.expected_solar_kwh || 0);
+    const maxSolar = Math.max(...solarVals);
+    const minSolarNonzero = Math.min(...solarVals.filter(v => v > 0), Infinity);
+    const isFlat = maxSolar > 0 && (maxSolar - minSolarNonzero) < 0.005;
+    const note = isFlat
+      ? 'Predicted values are uniform — your forecast sensor may provide only a daily total. ' +
+        'The optimizer distributes this via a bell curve; the predicted line shows the raw planned value per slot.'
+      : 'kWh per slot';
+
     return `
       <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block">
         ${gridY}
@@ -1639,7 +1648,7 @@ class BatteryOptimizerPanel extends HTMLElement {
         <text x="${padL + 12}" y="${H - 12}" font-size="9" fill="#2196f3">Predicted</text>
         ${actualPts.length > 0 ? `<circle cx="${padL + 62}" cy="${H - 16}" r="4" fill="#ffa726"/><text x="${padL + 70}" y="${H - 12}" font-size="9" fill="#ffa726">Actual</text>` : ''}
       </svg>
-      <p style="font-size:11px;color:var(--secondary-text-color);margin:4px 0 0">kWh per slot</p>`;
+      <p style="font-size:11px;color:var(--secondary-text-color);margin:4px 0 0">${note}</p>`;
   }
 
   _renderHistoryLoadChart(histSlots) {

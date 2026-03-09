@@ -759,6 +759,36 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             day_offset = (slot_date - today_date).days
             if 0 <= day_offset <= 2:
                 daily_solar_acc[day_offset] += kwh
+
+        # Override slot-sum totals with entity state values where available.
+        # The slot sum for tomorrow can be truncated when the lookahead window doesn't
+        # reach the solar peak; the entity state is the authoritative full-day total.
+        tomorrow_entity = merged.get(CONF_SOLAR_FORECAST_TOMORROW_ENTITY)
+        if tomorrow_entity:
+            st = self.hass.states.get(tomorrow_entity)
+            if st and st.state not in ("unavailable", "unknown"):
+                try:
+                    daily_solar_acc[1] = float(st.state)
+                except (ValueError, TypeError):
+                    pass
+            # Also check attributes for day+2
+            if st:
+                for key in (
+                    "energy_production_tomorrow",
+                    "kwh_tomorrow",
+                    "tomorrow_kwh",
+                    "forecast_tomorrow",
+                    "day_after_tomorrow",
+                    "energy_production_d2",
+                ):
+                    val = st.attributes.get(key)
+                    if val is not None:
+                        try:
+                            daily_solar_acc[2] = float(val)
+                            break
+                        except (TypeError, ValueError):
+                            pass
+
         daily_solar = [round(v, 2) for v in daily_solar_acc]
 
         low_solar_threshold_kwh = 2.0
