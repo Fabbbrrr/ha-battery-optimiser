@@ -163,6 +163,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             consumption_entity=cfg.get(CONF_CONSUMPTION_ENTITY),
             capacity_kwh=float(cfg.get(CONF_BATTERY_CAPACITY_KWH, 10.0)),
             retention_days=int(cfg.get(CONF_DATA_RETENTION_DAYS, DEFAULT_DATA_RETENTION_DAYS)),
+            slot_minutes=int(cfg.get(CONF_SLOT_GRANULARITY_MINUTES, DEFAULT_SLOT_GRANULARITY_MINUTES)),
         )
         tracker_stored = await self._tracker_storage.async_load()
         if tracker_stored:
