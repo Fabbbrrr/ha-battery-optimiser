@@ -3,6 +3,7 @@ CLAUDE.md
 PROGRESS.md
 .claude/
 memory/
+.continue/
 
 # Other workspace projects
 telemetry/
