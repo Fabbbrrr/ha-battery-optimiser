@@ -1452,9 +1452,9 @@ class BatteryOptimizerPanel extends HTMLElement {
       ? (socSlots.reduce((a, s) => a + Math.abs(s.actual_soc - s.projected_soc), 0) / socSlots.length).toFixed(1)
       : null;
 
-    const solarSlots = histSlots.filter(s => s.actual_solar_kwh != null && s.expected_solar_kwh > 0);
+    const solarSlots = histSlots.filter(s => s.actual_generation_kwh != null && s.expected_solar_kwh > 0.05);
     const solarAcc   = solarSlots.length > 0
-      ? (solarSlots.reduce((a, s) => a + s.actual_solar_kwh / s.expected_solar_kwh, 0) / solarSlots.length * 100).toFixed(0)
+      ? (solarSlots.reduce((a, s) => a + Math.min(s.actual_generation_kwh / s.expected_solar_kwh, 5), 0) / solarSlots.length * 100).toFixed(0)
       : null;
 
     const consSlots = histSlots.filter(s => s.actual_consumption_kwh != null && s.expected_consumption_kwh > 0);
@@ -1579,7 +1579,7 @@ class BatteryOptimizerPanel extends HTMLElement {
 
   _renderHistorySolarChart(histSlots) {
     const withSolar = histSlots.filter(s => s.expected_solar_kwh != null && s.expected_solar_kwh > 0);
-    const withActual = histSlots.filter(s => s.actual_solar_kwh != null || s.actual_generation_kwh != null);
+    const withActual = histSlots.filter(s => s.actual_generation_kwh != null);
 
     if (withSolar.length === 0) {
       return '<p class="no-data">No solar forecast data in history yet.</p>';
@@ -1597,7 +1597,7 @@ class BatteryOptimizerPanel extends HTMLElement {
 
     const allVals = [
       ...histSlots.map(s => s.expected_solar_kwh || 0),
-      ...histSlots.map(s => s.actual_generation_kwh ?? s.actual_solar_kwh ?? 0),
+      ...histSlots.map(s => s.actual_generation_kwh ?? 0),
     ];
     const maxVal = Math.max(...allVals, 0.1);
 
@@ -1609,8 +1609,8 @@ class BatteryOptimizerPanel extends HTMLElement {
       .map(s => ({ x: toX(new Date(s.start).getTime()), y: toY(s.expected_solar_kwh) }));
 
     const actualPts = histSlots
-      .filter(s => s.actual_generation_kwh != null || s.actual_solar_kwh != null)
-      .map(s => ({ x: toX(new Date(s.start).getTime()), y: toY(s.actual_generation_kwh ?? s.actual_solar_kwh) }));
+      .filter(s => s.actual_generation_kwh != null)
+      .map(s => ({ x: toX(new Date(s.start).getTime()), y: toY(s.actual_generation_kwh) }));
 
     const gridY = [0.25, 0.5, 0.75, 1.0].map(frac => {
       const y = (padT + cH - frac * cH).toFixed(1);
