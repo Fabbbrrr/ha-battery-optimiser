@@ -29,6 +29,7 @@ class PlannedVsActualTracker:
         capacity_kwh: float,
         retention_days: int = 90,
         solar_generation_entity: str | None = None,
+        slot_minutes: int = 30,
     ) -> None:
         self._hass = hass
         self._soc_entity = soc_entity
@@ -37,6 +38,11 @@ class PlannedVsActualTracker:
         self._consumption_entity = consumption_entity
         self._capacity_kwh = capacity_kwh
         self._retention_days = retention_days
+        self._slot_hours = slot_minutes / 60.0
+
+        # Previous generation meter reading for computing per-slot delta
+        # (used when the entity is a total_increasing energy meter)
+        self._prev_generation_kwh: float | None = None
 
         # Records: list of dicts with predicted + actual values per slot boundary
         self._records: list[dict[str, Any]] = []
@@ -95,7 +101,7 @@ class PlannedVsActualTracker:
         """Poll actual values and append a planned-vs-actual record."""
         actual_soc         = self._read_float(self._soc_entity)
         actual_solar       = self._read_float(self._solar_entity)
-        actual_generation  = self._read_float(self._solar_generation_entity)
+        actual_generation  = self._read_generation_kwh()
         actual_consumption = self._read_float(self._consumption_entity)
 
         record = {
@@ -136,6 +142,58 @@ class PlannedVsActualTracker:
         except (ValueError, TypeError):
             return None
 
+    def _read_generation_kwh(self) -> float | None:
+        """Read the solar generation entity and return per-slot kWh.
+
+        Handles three sensor types:
+        - total_increasing (kWh energy meter): computes delta from previous reading.
+          Covers daily-resetting counters (delta >= 0 check handles midnight reset
+          by treating the post-reset value as the slot's generation).
+        - power (W): converts to kWh using slot_hours.
+        - power (kW): converts to kWh using slot_hours.
+        - Other/unknown: returns raw float value.
+        """
+        if not self._solar_generation_entity:
+            return None
+        state = self._hass.states.get(self._solar_generation_entity)
+        if state is None or state.state in ("unavailable", "unknown", "none"):
+            return None
+        try:
+            current = float(state.state)
+        except (ValueError, TypeError):
+            return None
+
+        attrs = state.attributes
+        state_class = attrs.get("state_class", "")
+        unit = attrs.get("unit_of_measurement", "")
+
+        if state_class == "total_increasing" or unit.lower() in ("kwh", "wh"):
+            # Cumulative energy meter — return delta from previous slot boundary
+            if unit.lower() == "wh":
+                current = current / 1000.0  # convert Wh → kWh
+            prev = self._prev_generation_kwh
+            self._prev_generation_kwh = current
+            if prev is None:
+                return None  # first reading — no delta yet
+            delta = current - prev
+            if delta < 0:
+                # Counter reset (e.g. midnight rollover) — treat current value
+                # as generation since reset
+                delta = current
+            return round(delta, 4)
+
+        if unit == "W":
+            self._prev_generation_kwh = None  # reset delta tracking
+            return round(current / 1000.0 * self._slot_hours, 4)
+
+        if unit == "kW":
+            self._prev_generation_kwh = None
+            return round(current * self._slot_hours, 4)
+
+        # Unknown unit — return raw value
+        self._prev_generation_kwh = None
+        return current
+
     def enrich_historical_slots(self, slots: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Annotate past slots in the schedule with actual values from records.
 
@@ -157,6 +215,7 @@ class PlannedVsActualTracker:
                     if rec:
                         slot_copy["actual_soc"] = rec.get("actual_soc")
                         slot_copy["actual_solar_kwh"] = rec.get("actual_solar_kwh")
+                        slot_copy["actual_generation_kwh"] = rec.get("actual_generation_kwh")
                         slot_copy["actual_consumption_kwh"] = rec.get("actual_consumption_kwh")
             except (ValueError, TypeError):
                 pass
