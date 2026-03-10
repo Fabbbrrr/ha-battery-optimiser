@@ -106,6 +106,7 @@ class TariffSchedule:
     import_rate: list[float]        # $/kWh paid for each import slot
     grid_charge_allowed: list[bool] # Whether grid charging is allowed in each slot
     export_allowed: list[bool]      # Whether battery-to-grid export is allowed (bonus window only)
+    free_import_slots: list[bool] = field(default_factory=list)  # True if slot is in free import window
 
 
 @dataclass
@@ -446,6 +447,7 @@ def build_tariff_schedule(
     import_rate = []
     grid_charge_allowed = []
     export_allowed = []
+    free_import_slots = []
 
     standard_export = config.get(CONF_STANDARD_EXPORT_RATE, DEFAULT_STANDARD_EXPORT_RATE)
     standard_import = config.get(CONF_STANDARD_IMPORT_RATE, DEFAULT_STANDARD_IMPORT_RATE)
@@ -506,12 +508,14 @@ def build_tariff_schedule(
         import_rate.append(slot_import_rate)
         grid_charge_allowed.append(slot_grid_charge)
         export_allowed.append(slot_export_allowed)
+        free_import_slots.append(in_free_window)
 
     return TariffSchedule(
         export_rate=export_rate,
         import_rate=import_rate,
         grid_charge_allowed=grid_charge_allowed,
         export_allowed=export_allowed,
+        free_import_slots=free_import_slots,
     )
 
 
@@ -541,6 +545,15 @@ def _solve_lp(opt_input: OptimizationInput) -> OptimizationResult:
         c[IDX_CHARGE_GRID * T + t] = opt_input.tariff.import_rate[t]
         # Soft SOC preference (conservatism): reward holding higher SOC
         c[IDX_SOC * T + t] = -(1.0 - opt_input.aggressiveness) * soc_weight
+
+    # During free import slots, penalise home discharge to make the LP prefer
+    # free grid import over depleting the battery unnecessarily.
+    if opt_input.tariff.free_import_slots:
+        non_zero_rates = [r for r in opt_input.tariff.import_rate if r > 0]
+        std_rate = min(non_zero_rates) if non_zero_rates else 0.2
+        for t in range(T):
+            if opt_input.tariff.free_import_slots[t]:
+                c[IDX_HOME_DIS * T + t] = std_rate * 0.9
 
     # ------------------------------------------------------------------
     # Variable bounds

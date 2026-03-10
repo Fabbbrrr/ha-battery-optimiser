@@ -28,7 +28,7 @@ from .const import (
     # Solar
     CONF_SOLAR_FORECAST_ENTITY,
     CONF_SOLAR_FORECAST_FORMAT,
-    CONF_SOLAR_TOTAL_KWH_ENTITY,
+    CONF_SOLAR_GENERATION_ENTITY,
     CONF_SOLAR_FORECAST_TOMORROW_ENTITY,
     FORECAST_FORMAT_AUTO,
     FORECAST_FORMAT_FORECAST_SOLAR,
@@ -246,6 +246,9 @@ class BatteryOptimizerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema({
             vol.Required(CONF_SOLAR_FORECAST_ENTITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(CONF_SOLAR_GENERATION_ENTITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
         })
@@ -489,12 +492,23 @@ class BatteryOptimizerOptionsFlow(config_entries.OptionsFlow):
                     {"value": FORECAST_FORMAT_GENERIC_KWH,     "label": "Generic daily kWh sensor"},
                 ])
             ),
+            _entity_opt(CONF_SOLAR_GENERATION_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             _entity_opt(CONF_CONSUMPTION_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             _entity_opt(CONF_WEATHER_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="weather")),
             _entity_opt(CONF_MAX_EXPORT_LIMIT_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
         })
 
-        return self.async_show_form(step_id="entity_settings", data_schema=schema)
+        return self.async_show_form(
+            step_id="entity_settings",
+            data_schema=schema,
+            description_placeholders={
+                "gen_hint": (
+                    "Solar generation: choose a POWER sensor (W or kW) from your inverter, "
+                    "e.g. sensor.solaredge_ac_power or sensor.solar_power. "
+                    "Used to track actual vs forecast accuracy — optional but recommended."
+                )
+            },
+        )
 
     async def async_step_advanced_settings(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Options: advanced/performance settings."""
