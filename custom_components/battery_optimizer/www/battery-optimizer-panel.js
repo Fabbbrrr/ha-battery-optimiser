@@ -1141,13 +1141,16 @@ class BatteryOptimizerPanel extends HTMLElement {
 
       // SOC at end of this slot
       const socEnd = slot.projected_soc != null ? Math.round(slot.projected_soc) : null;
-      // SOC at start: previous slot's projected_soc or live sensor
-      let socStart = null;
-      if (i === 0) {
-        if (!isNaN(liveSoc)) socStart = Math.round(liveSoc);
-      } else {
-        const prev = slots[i - 1];
-        if (prev.projected_soc != null) socStart = Math.round(prev.projected_soc);
+      // SOC at start: use embedded soc_start field (correct even for filtered decision_slots)
+      let socStart = slot.soc_start != null ? Math.round(slot.soc_start) : null;
+      // Fallback for legacy data without soc_start
+      if (socStart == null) {
+        if (i === 0) {
+          if (!isNaN(liveSoc)) socStart = Math.round(liveSoc);
+        } else {
+          const prev = slots[i - 1];
+          if (prev.projected_soc != null) socStart = Math.round(prev.projected_soc);
+        }
       }
 
       const socHtml = (socStart != null || socEnd != null)

@@ -479,6 +479,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
             s = slot.__dict__.copy()
             s["start"] = slot_start.isoformat()
             s["end"] = slot_end.isoformat()
+            s["soc_start"] = round(initial_soc_pct, 1) if i == 0 else result.slots[i - 1].projected_soc
 
             # Apply override if active and covers this slot
             if self._active_override:
