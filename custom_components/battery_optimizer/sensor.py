@@ -35,6 +35,31 @@ from .coordinator import BatteryOptimizerCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Slot attribute filtering — keeps sensor attributes under HA's 16 384-byte
+# per-sensor limit so they are persisted to the recorder database.
+# ---------------------------------------------------------------------------
+
+# Fields retained for future slots (schedule display + automations).
+_FUTURE_SLOT_KEYS: frozenset[str] = frozenset({
+    "start", "end", "action", "power_kw", "projected_soc",
+    "soc_start", "expected_solar_kwh", "expected_consumption_kwh",
+})
+# Fields retained for historical slots (analytics charts only).
+_HIST_SLOT_KEYS: frozenset[str] = frozenset({
+    "start", "is_historical", "actual_soc", "projected_soc",
+    "actual_generation_kwh", "expected_solar_kwh",
+    "actual_consumption_kwh", "expected_consumption_kwh",
+})
+# Hard caps on slot counts stored in attributes.
+_MAX_FUTURE_SLOTS = 48   # ≥ 24 h at 30-min resolution
+_MAX_HIST_SLOTS   = 20   # ≈ 10 h at 30-min resolution
+
+
+def _slim_slot(slot: dict[str, Any], keys: frozenset[str]) -> dict[str, Any]:
+    """Return a copy of *slot* with only *keys*, dropping None values."""
+    return {k: v for k, v in slot.items() if k in keys and v is not None}
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -119,16 +144,34 @@ class BatteryScheduleSensor(CoordinatorEntity[BatteryOptimizerCoordinator], Sens
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Full schedule as structured attributes for template automations."""
+        """Slimmed schedule attributes — stays under HA's 16 384-byte per-sensor limit."""
         data = self.coordinator.data
         if not data:
             return {}
-        return {
-            ATTR_SLOTS: data.get(ATTR_SLOTS, []),
-            "decision_slots": data.get("decision_slots", []),
+
+        all_slots: list[dict[str, Any]] = data.get(ATTR_SLOTS, [])
+        future = [s for s in all_slots if not s.get("is_historical")]
+        hist   = [s for s in all_slots if s.get("is_historical")]
+
+        slim_future = [_slim_slot(s, _FUTURE_SLOT_KEYS) for s in future[:_MAX_FUTURE_SLOTS]]
+        slim_hist   = [_slim_slot(s, _HIST_SLOT_KEYS)   for s in hist[-_MAX_HIST_SLOTS:]]
+
+        attrs: dict[str, Any] = {
+            ATTR_SLOTS: slim_hist + slim_future,
             "aggressiveness": data.get("aggressiveness", 0.7),
             "state": data.get("state"),
         }
+
+        # Only include decision_slots when windows are configured (i.e. it is a genuine
+        # subset of future slots).  When no windows are set, _filter_decision_slots
+        # returns None; the panel falls back to _futureSlots() automatically.
+        decision = data.get("decision_slots")
+        if decision is not None:
+            attrs["decision_slots"] = [
+                _slim_slot(s, _FUTURE_SLOT_KEYS) for s in decision[:_MAX_FUTURE_SLOTS]
+            ]
+
+        return attrs
 
 
 class BatteryHealthSensor(CoordinatorEntity[BatteryOptimizerCoordinator], SensorEntity):

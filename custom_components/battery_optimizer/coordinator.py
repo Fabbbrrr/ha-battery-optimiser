@@ -937,8 +937,12 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         self,
         slots: list[dict[str, Any]],
         merged: dict[str, Any],
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, Any]] | None:
         """Return only slots that fall within the export bonus or free import windows.
+
+        Returns None when no windows are configured so the sensor can omit the
+        ``decision_slots`` attribute key entirely — avoiding duplication of the full
+        future slot list that would push attributes over HA's 16 384-byte limit.
 
         The LP still optimises over the full lookahead to get accurate SOC projections,
         but only slots where a real-time decision is needed (export or charge window)
@@ -976,7 +980,7 @@ class BatteryOptimizerCoordinator(DataUpdateCoordinator):
         charge_end = _hhmm(merged.get(CONF_FREE_IMPORT_END))
 
         if exp_start is None and charge_start is None:
-            return slots  # No windows configured — return all
+            return None  # No windows configured — sensor omits the key; panel falls back to futureSlots
 
         result = []
         for slot in slots:
